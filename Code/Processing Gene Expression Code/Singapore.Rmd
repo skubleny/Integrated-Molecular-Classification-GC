@@ -1,0 +1,287 @@
+---
+title: "Singapore"
+author: "Daniel Skubleny"
+date: "10/02/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Singapore Data
+data_singapore = getGEO('GSE15459')
+```
+```{r}
+edata_singapore = as.data.frame(data_singapore[["GSE15459_series_matrix.txt.gz"]]@assayData[["exprs"]])  
+pheno_singapore = as.data.frame(data_singapore[["GSE15459_series_matrix.txt.gz"]]@phenoData@data)
+fdata_singapore = as.data.frame(data_singapore[["GSE15459_series_matrix.txt.gz"]]@featureData@data)
+```
+
+```{r}
+exclude = c("GSM387788", "GSM387790", "GSM387793", "GSM387797", "GSM387798", "GSM387799", "GSM387844", "GSM387937")
+pheno_singapore = pheno_singapore[!(row.names(pheno_singapore) %in% exclude),] #Remove excluded row names 
+edata_singapore = edata_singapore[,!(colnames(edata_singapore) %in% exclude)] #Remove excluded column names
+```
+
+
+#Annotate 
+```{r}
+library(hgu133plus2.db)
+annotatedsingapore = AnnotationDbi::select(hgu133plus2.db,keys = as.character(fdata_singapore$ID), columns = c("SYMBOL","ENTREZID","ENSEMBL"), keytype = "PROBEID")
+```
+```{r}
+edata_singapore = tibble::rownames_to_column(edata_singapore, "PROBEID")
+edata_singapore = merge(annotatedsingapore,edata_singapore, by.x="PROBEID")  #Merge so that SYMBOL is allocated to probes
+edata_singapore = dplyr::select(edata_singapore, -c("PROBEID","ENTREZID","ENSEMBL")) #Remove PROBEID and SYMBOL.
+```
+
+Check for NAs after switching to Gene SYMBOL
+```{r}
+table(is.na(edata_singapore$SYMBOL))
+```
+```{r}
+edata_singapore = edata_singapore[!is.na(edata_singapore$SYMBOL),]
+```
+
+## Check for duplicates
+```{r}
+table(duplicated(edata_singapore$SYMBOL))
+```
+```{r}
+#Aggregate duplicate genes by mean
+edata_singapore %>% group_by(SYMBOL) %>% summarise_all(mean) %>% data.frame() -> edata_singapore_merged
+edata_singapore = edata_singapore_merged
+ #Aggregate and mean duplicate SYMBOLS 
+```
+
+```{r}
+edata_singapore = data.frame(edata_singapore, row.names = "SYMBOL") #Make column the row names 
+```
+#Check NA
+```{r}
+table(is.na(edata_singapore))
+#No NA
+```
+
+#Now that we have our dataset lets look at our expression data distribution. Do we need to normalize? Do we have outliers?
+
+Boxplot
+```{r}
+# Look at data that is not transformed vs transformed
+par(mfrow=c(1,2))
+boxplot(edata_singapore, col=2, range=0)
+boxplot(log2(edata_singapore+1), col=2, range=0)
+#Data requires log2 transform
+```
+Histogram
+```{r}
+par(mfrow=c(1,2))
+hist(edata_singapore[,1],col=2)
+hist(log2(edata_singapore[,1]+1),col=3)
+```
+
+Density Plot
+```{r}
+par(mfrow=c(1,2))
+plot(density(edata_singapore[,1]),col=2)
+lines(density(edata_singapore[,2]),col=3)
+plot(density(log2(edata_singapore[,1]+1)),col=2)
+lines(density(log2(edata_singapore[,2]+1)),col=3)
+```
+
+qqPlot
+```{r}
+par(mfrow=c(1,2))
+qqplot(edata_singapore[,1], edata_singapore[,2],col=3)
+qqplot(log2(edata_singapore[,1]+1), log2(edata_singapore[,2]+1),col=3)
+```
+
+Bland Altman Plot
+```{r}
+# Bland Altman Plot
+mm = edata_singapore[,1] - edata_singapore[,2]
+aa = edata_singapore[,1] + edata_singapore[,2]
+plot(aa,mm,col=2) 
+```
+Let's reassess after a log2 transform 
+```{r}
+# Bland Altman Plot
+mm = log2(edata_singapore[,1]+1) - log2(edata_singapore[,2]+1)
+aa = log2(edata_singapore[,1]+1) + log2(edata_singapore[,2]+1)
+plot(aa,mm,col=2) 
+```
+#Here we can see that the MAS 5.0 processing is not adequately creating a normalized distribution. I will process with raw CEL files instead. 
+
+#Load packages for CEL processing 
+```{r}
+library(ArrayExpress)
+library(oligo)
+library(affy)
+```
+
+```{r}
+options(timeout=999)
+cel_singapore = getGEOSuppFiles('GSE15459')
+```
+```{r}
+celpath = "/Users/GSE15459/GSE15459_RAW" #Specify path
+cel_sing = ReadAffy(celfile.path = celpath)
+```
+
+#Pheno data
+```{r}
+pheno_sing = cel_sing@phenoData
+pheno_sing 
+```
+```{r}
+pheno_sing = pData(pheno_sing) #The sample names are the row namnes. 
+```
+#Feature data
+```{r}
+fdata_sing = cel_sing@featureData
+fdata_sing
+fdata_sing@data
+```
+
+#Expression data
+```{r}
+raw_sing = exprs(cel_sing)
+```
+#Retrieve probe IDs
+```{r}
+cdfName(cel_sing)
+```
+```{r}
+features = featureNames(cel_sing)
+length(features)
+```
+```{r}
+length(probeNames(cel_sing))
+```
+#RMA normalize
+```{r}
+data.rma = rma(cel_sing)
+edata_sing = exprs(data.rma)
+```
+#Fix data frame columns
+```{r}
+names = colnames(edata_sing) #Make columns names into a string
+names = str_remove_all(names, "[.CEL.gz]") #Remove the end of string on each samples
+colnames(edata_sing) = names #Rename columns 
+```
+
+
+```{r}
+exclude = c("GSM387788", "GSM387790", "GSM387793", "GSM387797", "GSM387798", "GSM387799", "GSM387844", "GSM387937")
+edata_sing = edata_sing[,!(colnames(edata_sing) %in% exclude)] #Remove excluded column names
+```
+
+#Annotate 
+```{r}
+library(hgu133plus2.db)
+annotatedsingapore_cel = AnnotationDbi::select(hgu133plus2.db,keys = as.character(features), columns = c("SYMBOL","ENTREZID","ENSEMBL"), keytype = "PROBEID")
+```
+```{r}
+edata_sing = as.data.frame(edata_sing)
+edata_sing = tibble::rownames_to_column(edata_sing, "PROBEID")
+edata_sing = merge(annotatedsingapore_cel,edata_sing, by.x="PROBEID")  #Merge so that SYMBOL is allocated to probes
+edata_sing = dplyr::select(edata_sing, -c("PROBEID","ENTREZID","ENSEMBL")) #Remove PROBEID and SYMBOL.
+```
+
+Check for NAs after switching to Gene SYMBOL
+```{r}
+table(is.na(edata_sing$SYMBOL))
+```
+```{r}
+edata_sing = edata_sing[!is.na(edata_sing$SYMBOL),]
+```
+
+## Check for duplicates
+```{r}
+table(duplicated(edata_sing$SYMBOL))
+```
+```{r}
+#Aggregate duplicate genes by mean
+edata_sing %>% group_by(SYMBOL) %>% summarise_all(mean) %>% data.frame() -> edata_sing_merged
+edata_sing = edata_sing_merged
+ #Aggregate and mean duplicate SYMBOLS 
+```
+
+```{r}
+edata_sing = data.frame(edata_sing, row.names = "SYMBOL") #Make column the row names 
+```
+#Check NA
+```{r}
+table(is.na(edata_sing))
+#No NA
+```
+
+#Exploratory data analysis of RMA normalized data. 
+Boxplot
+```{r}
+# Look at data that is not transformed vs transformed
+boxplot(edata_sing, col=2, range=0)
+#Data is log2 transformed
+```
+Histogram
+```{r}
+hist(edata_sing[,1],col=2)
+```
+
+Density Plot
+```{r}
+plot(density(edata_sing[,1]),col=2, ylim=c(0,0.3))
+lines(density(edata_sing[,2]),col=3)
+```
+
+qqPlot
+```{r}
+qqplot(edata_sing[,1], edata_sing[,2],col=3)
+```
+
+Bland Altman Plot
+```{r}
+# Bland Altman Plot
+mm = edata_sing[,1] - edata_sing[,2]
+aa = edata_sing[,1] + edata_sing[,2]
+plot(aa,mm,col=2) 
+```
+
+#Remove low expression genes 
+```{r}
+mediansingapore = rowMedians(as.matrix(edata_sing))
+hist(mediansingapore, breaks = 200)
+```
+```{r}
+hist(mediansingapore, breaks = 200, xlim = c(3,6.5))
+abline(v=3.7, lwd=3)
+#Zoom into data and determine cut-off point
+```
+```{r}
+hist(mediansingapore, breaks = 200)
+abline(v=3.7, lwd=3)
+```
+
+```{r}
+#Remove low expression genes
+mediansingapore = as.data.frame(mediansingapore)
+mediansingapore = mediansingapore > 3.7
+edata_sing = edata_sing[mediansingapore,]
+```
+
+
+#Quantile Normalization 
+
+```{r}
+#Check if quantile normalization is performed
+colramp = colorRampPalette(c(3,"white",2))(20)
+plot(density(edata_sing[,1]),col=colramp[1],lwd=1,ylim=c(0,.35))
+for(i in 2:109){lines(density(edata_sing[,i]),lwd=1,col=colramp[i])}
+#After annotation there are a few issues. I will be able to correct these with FSQN. 
+```
+
+
+
+

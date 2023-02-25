@@ -1,0 +1,135 @@
+---
+title: "Shanghai"
+author: "Daniel Skubleny"
+date: "11/02/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+#Shanghai Cohort
+data_shanghai = getGEO('GSE57303')
+```
+
+```{r}
+#Extract pheno and fdata from the main GEO series
+edata_shanghai = as.data.frame(data_shanghai[["GSE57303_series_matrix.txt.gz"]]@assayData[["exprs"]])  
+pheno_shanghai = as.data.frame(data_shanghai[["GSE57303_series_matrix.txt.gz"]]@phenoData@data)
+fdata_shanghai = as.data.frame(data_shanghai[["GSE57303_series_matrix.txt.gz"]]@featureData@data)
+```
+
+#Annotate 
+```{r}
+annotatedshanghai = AnnotationDbi::select(hgu133plus2.db,keys,keys = as.character(fdata_shanghai$ID), columns = c("SYMBOL","ENTREZID","ENSEMBL"), keytype = "PROBEID")
+```
+
+```{r}
+edata_shanghai = edata_shanghai %>% tibble::rownames_to_column("PROBEID") # Make the first column the row name
+```
+
+```{r}
+edata_shanghai = merge(annotatedshanghai, edata_shanghai, by.x="PROBEID") #Merge so that SYMBOL is allocated to probes
+edata_shanghai = dplyr::select(edata_shanghai, -c("ENTREZID","ENSEMBL","PROBEID")) #Remove ENTREZID, PROBEID and ENSEMBL
+```
+
+Check for NAs after switching to Gene SYMBOL
+```{r}
+table(is.na(edata_shanghai$SYMBOL))
+```
+```{r}
+edata_shanghai = edata_shanghai[!is.na(edata_shanghai$SYMBOL),]
+```
+
+## Check for duplicates
+```{r}
+table(duplicated(edata_shanghai$SYMBOL))
+```
+```{r}
+#Aggregate duplicate genes by mean
+edata_shanghai %>% group_by(SYMBOL) %>% summarise_all(mean) %>% data.frame() -> edata_shanghai_merged
+edata_shanghai = edata_shanghai_merged
+ #Aggregate and mean duplicate SYMBOLS 
+```
+
+
+```{r}
+edata_shanghai = data.frame(edata_shanghai, row.names = "SYMBOL")
+```
+```{r}
+table(is.na(edata_shanghai))
+#No NA
+```
+
+#Exploratory data analysis of RMA normalized data. 
+Boxplot
+```{r}
+# Look at data that is not transformed vs transformed
+boxplot(edata_shanghai, col=2, range=0)
+#Data is log2 transformed
+```
+Histogram
+```{r}
+hist(edata_shanghai[,1],col=2)
+```
+
+Density Plot
+```{r}
+plot(density(edata_shanghai[,1]),col=2, ylim=c(0,0.3))
+lines(density(edata_shanghai[,2]),col=3)
+```
+
+qqPlot
+```{r}
+qqplot(edata_shanghai[,1], edata_shanghai[,2],col=3)
+```
+
+Bland Altman Plot
+```{r}
+# Bland Altman Plot
+mm = edata_shanghai[,1] - edata_shanghai[,2]
+aa = edata_shanghai[,1] + edata_shanghai[,2]
+plot(aa,mm,col=2) 
+```
+
+#Remove low expression genes 
+```{r}
+medianshanghai = rowMedians(as.matrix(edata_shanghai))
+hist(medianshanghai, breaks = 200)
+```
+```{r}
+hist(medianshanghai, breaks = 200, xlim = c(1.5,5))
+abline(v=1.7, lwd=3)
+#Zoom into data and determine cut-off point
+```
+```{r}
+hist(medianshanghai, breaks = 200)
+abline(v=1.7, lwd=3)
+```
+
+```{r}
+#Remove low expression genes
+medianshanghai = as.data.frame(medianshanghai)
+medianshanghai = medianshanghai > 1.7
+edata_shanghai = edata_shanghai[medianshanghai,]
+```
+
+
+#Quantile Normalization 
+
+```{r}
+#Check if quantile normalization is performed
+colramp = colorRampPalette(c(3,"white",2))(20)
+plot(density(edata_shanghai[,1]),col=colramp[1],lwd=1,ylim=c(0,.35))
+for(i in 2:50){lines(density(edata_shanghai[,i]),lwd=1,col=colramp[i])}
+#Ready for downstream analysis. 
+```
+
+
+
+
+

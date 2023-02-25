@@ -1,0 +1,204 @@
+---
+title: "Korea Cohort"
+author: "Daniel Skubleny"
+date: "10/02/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+#Korea Data
+data_KUGH = getGEO('GSE26899')
+```
+```{r}
+edata_KUGH = as.data.frame(data_KUGH[["GSE26899_series_matrix.txt.gz"]]@assayData[["exprs"]])  
+pheno_KUGH = as.data.frame(data_KUGH[["GSE26899_series_matrix.txt.gz"]]@phenoData@data)
+fdata_KUGH = as.data.frame(data_KUGH[["GSE26899_series_matrix.txt.gz"]]@featureData@data)
+```
+
+
+
+#Annotate 
+```{r}
+edata_KUGH = tibble::rownames_to_column(edata_KUGH, "ID")
+fdata_KUGHsubset = dplyr::select(fdata_KUGH, c("ID","Entrez_Gene_ID"))
+edata_KUGH = merge(fdata_KUGHsubset,edata_KUGH, by.x="ID")
+```
+```{r}
+annotatedKUGH = AnnotationDbi::select(org.Hs.eg.db,keys = as.character(fdata_KUGH$Entrez_Gene_ID), columns = c("SYMBOL","ENTREZID","ENSEMBL"), keytype = "ENTREZID")
+```
+```{r}
+edata_KUGH = dplyr::select(edata_KUGH, c(-"ID")) #Remove ID column 
+colnames(edata_KUGH)[which(names(edata_KUGH) == "Entrez_Gene_ID")] <- "ENTREZID" #Convert column name
+```
+```{r}
+dim(annotatedKUGH)
+dim(edata_KUGH)
+table(duplicated(edata_KUGH$ENTREZID))
+#Because there is duplicates in my target column my merge will not work properly. I need to removed duplicated Entrez ID's in my target data frame. 
+```
+
+
+```{r}
+#Remove duplicate EntrezID
+edata_KUGH = edata_KUGH[!duplicated(edata_KUGH$ENTREZID),]
+
+#Merge Data frames. 
+edata_KUGH = merge(annotatedKUGH, edata_KUGH, by.x="ENTREZID")
+dim(edata_KUGH)
+dim(annotatedKUGH)
+```
+```{r}
+#Remove columns 
+edata_KUGH = dplyr::select(edata_KUGH, -c("ENTREZID","ENSEMBL"))
+
+```
+
+## Check for NA in SYMBOL
+```{r}
+table(is.na(edata_KUGH$SYMBOL))
+# There is NA due to Entrez Ids that no longer map to gene symbols. 
+```
+
+
+```{r}
+#Remove NA Symbols
+edata_KUGH = edata_KUGH[!is.na(edata_KUGH$SYMBOL),]
+```
+## Check for duplicates
+```{r}
+table(duplicated(edata_KUGH$SYMBOL))
+```
+```{r}
+#Aggregate duplicate genes by mean
+edata_KUGH %>% group_by(SYMBOL) %>% summarise_all(mean) %>% data.frame() -> edata_mergedKUGH
+edata_KUGH = edata_mergedKUGH
+ #Aggregate and mean duplicate ENTREZIDs 
+```
+
+#Check for NA in dataset
+```{r}
+table(is.na(edata_KUGH))
+```
+```{r}
+which(is.na(edata_KUGH), arr.ind=TRUE)
+```
+#Impute NA
+```{r}
+library(impute)
+edata_KUGH = edata_KUGH %>% tibble::column_to_rownames("SYMBOL") # Make the first column the row name
+edata_KUGH = as.matrix(edata_KUGH)
+imputeKUGH = impute.knn(edata_KUGH, k=10, rowmax = 0.2, colmax = 0.2) #KNN imputation with no more than 20% missingness allowed. 
+edata_KUGH = imputeKUGH$data 
+```
+```{r}
+#Confirm no NA
+table(is.na(edata_KUGH))
+```
+
+
+#Exploratory data analysis 
+
+Boxplot
+```{r}
+# Look at data that is not transformed vs transformed
+par(mfrow=c(1,2))
+boxplot(edata_KUGH, col=2, range=0)
+boxplot(log2(edata_KUGH+1), col=2, range=0)
+#Clearly data was already transformed 
+#There appears to be a large outlier. Let's look at the rest of the data and then remove the normals and GIST samples an re-evaluate
+```
+Histogram
+```{r}
+par(mfrow=c(1,1))
+hist(edata_KUGH[,1],col=2)
+
+```
+Density Plot
+```{r}
+par(mfrow=c(1,1))
+plot(density(edata_KUGH[,1]),col=2)
+lines(density(edata_KUGH[,2]),col=3)
+```
+qqPlot
+```{r}
+qqplot(edata_KUGH[,1], edata_KUGH[,2],col=3)
+```
+Bland Altman Plot
+```{r}
+# Bland Altman Plot
+mm = edata_KUGH[,1] - edata_KUGH[,2]
+aa = edata_KUGH[,1] + edata_KUGH[,2]
+plot(aa,mm,col=2) 
+```
+
+#Quantile Normalization 
+
+```{r}
+#Check if quantile normalization is required.
+colramp = colorRampPalette(c(3,"white",2))(20)
+plot(density(edata_KUGH[,1]),col=colramp[1],lwd=1,ylim=c(0,.7))
+for(i in 2:108){lines(density(edata_KUGH[,i]),lwd=1,col=colramp[i])}
+#I will now remove the normal and GIST samples into their own dataframe and reassess the data.
+```
+#Remove normal and GIST
+```{r}
+normal_KUGH = pheno_KUGH$`tissue:ch1`=='Gastric Surrounding normal tissue'
+normal_KUGH = edata_KUGH[,normal_KUGH]
+```
+```{r}
+pheno_KUGH$`tumor type:ch1`[is.na(pheno_KUGH$`tumor type:ch1`)] = "NORMAL"
+GIST_KUGH = pheno_KUGH$`tumor type:ch1` =='GIST'
+GIST_KUGH = edata_KUGH[,GIST_KUGH]
+```
+```{r}
+adeno_KUGH = pheno_KUGH$`tumor type:ch1` =='GC'
+adeno_KUGH = edata_KUGH[,adeno_KUGH]
+edata_KUGH = adeno_KUGH
+```
+
+
+Recheck Boxplot
+```{r}
+boxplot(edata_KUGH, col=2, range=0)
+#Data is transformed quite nicely. There is one sample with a lower count range. 
+```
+
+#Remove low expression genes 
+```{r}
+medianKUGHC = rowMedians(as.matrix(edata_KUGH))
+hist(medianKUGHC, breaks = 200)
+#Can see clear peak 
+```
+
+```{r}
+hist(medianKUGHC, breaks = 300, xlim = c(4,8))
+abline(v=5.8, lwd=3)
+#Zoom into data and determine cut-off point
+```
+
+```{r}
+#Remove low expression genes
+medianKUGHC = as.data.frame(medianKUGHC)
+medianKUGHC = medianKUGHC > 5.8
+edata_KUGH = edata_KUGH[medianKUGHC,]
+```
+
+Removed low expression genes. Lets recheck quantile normalization. 
+
+```{r}
+#Re-Check if quantile normalization is required.
+colramp = colorRampPalette(c(3,"white",2))(20)
+plot(density(edata_KUGH[,1]),col=colramp[1],lwd=1,ylim=c(0,.7))
+for(i in 2:93){lines(density(edata_KUGH[,i]),lwd=1,col=colramp[i])}
+#It looks okay. Close enough not to require additional quantile normaliation
+```
+
+
+Data set complete. 
+
+

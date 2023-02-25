@@ -1,0 +1,155 @@
+---
+title: "MDACC"
+author: "Daniel Skubleny"
+date: "10/02/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#Download data
+```{r}
+data_MDACC = getGEO('GSE28541')
+```
+```{r}
+edata_MDACC = as.data.frame(data_MDACC[["GSE28541_series_matrix.txt.gz"]]@assayData[["exprs"]])
+pheno_MDACC = as.data.frame(data_MDACC[["GSE28541_series_matrix.txt.gz"]]@phenoData@data)
+fdata_MDACC = as.data.frame(data_MDACC[["GSE28541_series_matrix.txt.gz"]]@featureData@data)
+```
+
+#Annotate 
+```{r}
+edata_MDACC = tibble::rownames_to_column(edata_MDACC, "ID")
+fdata_MDACCsubset = dplyr::select(fdata_MDACC, c("ID","Entrez_Gene_ID"))
+edata_MDACC = merge(fdata_MDACCsubset,edata_MDACC, by.x="ID")
+```
+```{r}
+annotatedMDACC = AnnotationDbi::select(org.Hs.eg.db,keys = as.character(fdata_MDACC$Entrez_Gene_ID), columns = c("SYMBOL","ENTREZID","ENSEMBL"), keytype = "ENTREZID")
+```
+```{r}
+edata_MDACC = dplyr::select(edata_MDACC, c(-"ID")) #Remove ID column 
+colnames(edata_MDACC)[which(names(edata_MDACC) == "Entrez_Gene_ID")] <- "ENTREZID" #Convert column name
+```
+```{r}
+dim(annotatedMDACC)
+dim(edata_MDACC)
+table(duplicated(edata_MDACC$ENTREZID))
+#Because there is duplicates in my target column my merge will not work properly. I need to removed duplicated Entrez ID's in my target data frame. 
+```
+
+```{r}
+#Remove duplicate EntrezID
+edata_MDACC = edata_MDACC[!duplicated(edata_MDACC$ENTREZID),]
+
+#Merge Data frames. 
+edata_MDACC = merge(annotatedMDACC, edata_MDACC, by.x="ENTREZID")
+dim(edata_MDACC)
+dim(annotatedMDACC)
+```
+```{r}
+#Remove columns 
+edata_MDACC = dplyr::select(edata_MDACC, -c("ENTREZID","ENSEMBL"))
+
+```
+
+## Check for NA in SYMBOL
+```{r}
+table(is.na(edata_MDACC$SYMBOL))
+# There is NA due to Entrez Ids that no longer map to gene symbols. 
+```
+```{r}
+#Remove NA Symbols
+edata_MDACC = edata_MDACC[!is.na(edata_MDACC$SYMBOL),]
+```
+## Check for duplicates
+```{r}
+table(duplicated(edata_MDACC$SYMBOL))
+```
+```{r}
+#Aggregate duplicate genes by mean
+edata_MDACC %>% group_by(SYMBOL) %>% summarise_all(mean) %>% data.frame() -> edata_mergedMDACC
+edata_MDACC = edata_mergedMDACC
+ #Aggregate and mean duplicate ENTREZIDs 
+```
+
+#Check for NA in dataset
+```{r}
+table(is.na(edata_MDACC))
+```
+
+```{r}
+edata_MDACC = edata_MDACC %>% tibble::column_to_rownames("SYMBOL") # Make the first column the row name
+```
+
+#Exploratory data analysis 
+
+Boxplot
+```{r}
+# Look at data that is not transformed vs transformed
+par(mfrow=c(1,2))
+boxplot(edata_MDACC, col=2, range=0)
+boxplot(log2(edata_MDACC+1), col=2, range=0)
+#Clearly data was already transformed 
+```
+Histogram
+```{r}
+par(mfrow=c(1,1))
+hist(edata_MDACC[,1],col=2)
+
+```
+Density Plot
+```{r}
+par(mfrow=c(1,1))
+plot(density(edata_MDACC[,1]),col=2)
+lines(density(edata_MDACC[,2]),col=3)
+```
+qqPlot
+```{r}
+qqplot(edata_MDACC[,1], edata_MDACC[,2],col=3)
+```
+Bland Altman Plot
+```{r}
+# Bland Altman Plot
+mm = edata_MDACC[,1] - edata_MDACC[,2]
+aa = edata_MDACC[,1] + edata_MDACC[,2]
+plot(aa,mm,col=2) 
+```
+
+No need to log transform. It is already normalized.
+
+#Remove low expression genes 
+```{r}
+medianMDACC = rowMedians(as.matrix(edata_MDACC))
+hist(medianMDACC, breaks = 200)
+#Can see clear peak 
+```
+```{r}
+hist(medianMDACC, breaks = 300, xlim = c(4,8))
+abline(v=6.15, lwd=3)
+#Zoom into data and determine cut-off point
+```
+```{r}
+#Remove low expression genes
+medianMDACC = as.data.frame(medianMDACC)
+medianMDACC = medianMDACC > 6.15
+edata_MDACC = edata_MDACC[medianMDACC,]
+```
+
+Removed low expression genes. Lets look at quantile normalization. 
+
+#Quantile Normalization 
+
+```{r}
+#Check if quantile normalization is required.
+colramp = colorRampPalette(c(3,"white",2))(20)
+plot(density(edata_MDACC[,1]),col=colramp[1],lwd=1,ylim=c(0,.7))
+for(i in 2:40){lines(density(edata_MDACC[,i]),lwd=1,col=colramp[i])}
+#In the plot there is very little effect of aggregating data based on gene symbol thus we will not quantile normalize again. (Preliminary analysis of raw data set demonstrated quantile normalization was already performed)
+
+#I can now use this dataset for validation. I will perform FSQN for each respective classifier. 
+```
+
+
+
+

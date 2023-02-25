@@ -1,0 +1,196 @@
+---
+title: "Singapore batch B"
+author: "Daniel Skubleny"
+date: "11/02/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+#Singapore Batch B Data
+data_batchb_sing = getGEO('GSE34942')
+data_batchb_supp = getGEOSuppFiles('GSE34942')
+```
+
+```{r}
+#Extract pheno and fdata from the main GEO series
+pheno_batchb_sing = as.data.frame(data_batchb_sing[["GSE34942_series_matrix.txt.gz"]]@phenoData@data)
+fdata_batchb_sing = as.data.frame(data_batchb_sing[["GSE34942_series_matrix.txt.gz"]]@featureData@data)
+```
+
+#Load packages for CEL processing 
+```{r}
+library(ArrayExpress)
+library(oligo)
+library(affy)
+```
+```{r}
+View(data_batchb_supp) 
+```
+
+```{r}
+celpath_batchb = "/Users/GSE34942/GSE34942_RAW" #Specify path
+cel_batchb = ReadAffy(celfile.path = celpath_batchb) 
+```
+
+#Pheno data
+```{r}
+pheno_batchb = cel_batchb@phenoData
+pheno_batchb 
+```
+```{r}
+pheno_batchb = pData(pheno_batchb) #The sample names are the row namnes. 
+```
+#Feature data
+```{r}
+fdata_batchb = cel_batchb@featureData
+fdata_batchb
+fdata_batchb@data
+```
+
+#Expression data
+```{r}
+raw_batchb = exprs(cel_batchb)
+```
+#Retrieve probe IDs
+```{r}
+cdfName(cel_batchb)
+```
+```{r}
+features_batchb = featureNames(cel_batchb)
+length(features_batchb)
+```
+```{r}
+length(probeNames(cel_batchb))
+```
+#RMA normalize
+```{r}
+data.rma_batchb = rma(cel_batchb)
+edata_batchb = exprs(data.rma_batchb)
+```
+#Fix data frame columns
+```{r}
+names_batchb = rownames(pheno_batchb_sing) #Make columns names into a string
+colnames(edata_batchb) = names_batchb #Rename columns 
+```
+
+
+#Annotate 
+```{r}
+library(hgu133plus2.db)
+annotatedbatchb = AnnotationDbi::select(hgu133plus2.db,keys = as.character(features_batchb), columns = c("SYMBOL","ENTREZID","ENSEMBL"), keytype = "PROBEID")
+```
+```{r}
+edata_batchb = as.data.frame(edata_batchb)
+edata_batchb = tibble::rownames_to_column(edata_batchb, "PROBEID")
+edata_batchb = merge(annotatedbatchb,edata_batchb, by.x="PROBEID")  #Merge so that SYMBOL is allocated to probes
+edata_batchb = dplyr::select(edata_batchb, -c("PROBEID","ENTREZID","ENSEMBL")) #Remove PROBEID and SYMBOL.
+```
+
+Check for NAs after switching to Gene SYMBOL
+```{r}
+table(is.na(edata_batchb$SYMBOL))
+```
+```{r}
+edata_batchb = edata_batchb[!is.na(edata_batchb$SYMBOL),]
+```
+
+## Check for duplicates
+```{r}
+table(duplicated(edata_batchb$SYMBOL))
+```
+```{r}
+#Aggregate duplicate genes by mean
+edata_batchb %>% group_by(SYMBOL) %>% summarise_all(mean) %>% data.frame() -> edata_batchb_merged
+edata_batchb = edata_batchb_merged
+ #Aggregate and mean duplicate SYMBOLS 
+```
+
+```{r}
+edata_batchb = data.frame(edata_batchb, row.names = "SYMBOL") #Make column the row names 
+```
+#Check NA
+```{r}
+table(is.na(edata_batchb))
+#No NA
+```
+
+
+#Exploratory data analysis of RMA normalized data. 
+Boxplot
+```{r}
+# Look at data that is not transformed vs transformed
+boxplot(edata_batchb, col=2, range=0)
+#Data is log2 transformed
+```
+Histogram
+```{r}
+hist(edata_batchb[,1],col=2)
+```
+
+Density Plot
+```{r}
+plot(density(edata_batchb[,1]),col=2, ylim=c(0,0.3))
+lines(density(edata_batchb[,2]),col=3)
+```
+
+qqPlot
+```{r}
+qqplot(edata_batchb[,1], edata_batchb[,2],col=3)
+```
+
+Bland Altman Plot
+```{r}
+# Bland Altman Plot
+mm = edata_batchb[,1] - edata_batchb[,2]
+aa = edata_batchb[,1] + edata_batchb[,2]
+plot(aa,mm,col=2) 
+```
+
+#Remove low expression genes 
+```{r}
+medianbatchb = rowMedians(as.matrix(edata_batchb))
+hist(medianbatchb, breaks = 200)
+```
+```{r}
+hist(medianbatchb, breaks = 200, xlim = c(1.5,7))
+abline(v=4.85, lwd=3)
+#Zoom into data and determine cut-off point
+```
+```{r}
+hist(medianbatchb, breaks = 200)
+abline(v=4.85, lwd=3)
+```
+
+```{r}
+#Remove low expression genes
+medianbatchb = as.data.frame(medianbatchb)
+medianbatchb = medianbatchb > 4.85
+edata_batchb = edata_batchb[medianbatchb,]
+```
+
+
+#Quantile Normalization 
+
+```{r}
+#Check if quantile normalization is performed
+colramp = colorRampPalette(c(3,"white",2))(20)
+plot(density(edata_batchb[,1]),col=colramp[1],lwd=1,ylim=c(0,.35))
+for(i in 2:50){lines(density(edata_batchb[,i]),lwd=1,col=colramp[i])}
+#Ready for downstream analysis. 
+```
+
+
+
+
+
+
+
+
+
+
