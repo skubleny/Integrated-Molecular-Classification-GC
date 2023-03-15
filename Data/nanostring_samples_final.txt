@@ -1,0 +1,97 @@
+Sample.no	Organisim	sample_type	cartridge	batch	lane_position	Patient.barcodes	Patient.unique.barcodes	ffpe_block	tube_id	technical_replicates	Tissues	exclude	exclusion_reason	SampleNames
+1	homo sapiens	FFPE	1	1	1	63N	63		63N	normal	normal	FALSE		20210714_Skubley Run 1_0163N_01.RCC
+2	homo sapiens	FFPE	1	1	2	63C	63		63C	cancer	cancer	FALSE		20210714_Skubley Run 1_0263C_02.RCC
+3	homo sapiens	organoid	1	1	3	63N-O	63		63N-O	normal_organoid	normal_organoid	FALSE		20210714_Skubley Run 1_0363N-O_03.RCC
+4	homo sapiens	organoid	1	1	4	63C-O	63		63C-O	cancer_organoid	cancer_organoid	FALSE		20210714_Skubley Run 1_0463C-O_04.RCC
+5	homo sapiens	FFPE	1	1	5	53C	53		53C	cancer	cancer	FALSE		20210714_Skubley Run 1_0553C_05.RCC
+6	homo sapiens	organoid	1	1	6	53C-O	53		53C-O	cancer_organoid	cancer_organoid	TRUE	low counts	20210714_Skubley Run 1_0653C-O_06.RCC
+7	homo sapiens	FFPE	1	1	7	54C	54		54C	replicate_cancer_54C	cancer	FALSE		20210714_Skubley Run 1_0754C_07.RCC
+8	homo sapiens	organoid	1	1	8	54C-O	54		54C-O	replicate_cancer_organoid_54C-O	cancer_organoid	FALSE		20210714_Skubley Run 1_0854C-O_08.RCC
+9	homo sapiens	FFPE	1	1	9	55C	55		55C	cancer	cancer	FALSE		20210714_Skubley Run 1_0955C_09.RCC
+10	homo sapiens	organoid	1	1	10	55C-O	55		55C-O	cancer_organoid	cancer_organoid	FALSE		20210714_Skubley Run 1_1055C-O_10.RCC
+11	homo sapiens	FFPE	1	1	11	57C	57		57C	cancer	cancer	FALSE		20210714_Skubley Run 1_1157C_11.RCC
+12	homo sapiens	organoid	1	1	12	57C-O	57		57C-O	cancer_organoid	cancer_organoid	TRUE	low counts	20210714_Skubley Run 1_1257C-O_12.RCC
+13	homo sapiens	FFPE	2	1	1	54C	54		54C	replicate_cancer_54C	cancer	FALSE		20210812_Daniel Skubleny-Run 2_0154C_01.RCC
+14	homo sapiens	organoid	2	1	2	54C-O	54		54C-O	replicate_cancer_organoid_54C-O	cancer_organoid	FALSE		20210812_Daniel Skubleny-Run 2_0254C-O_02.RCC
+15	homo sapiens	FFPE	2	1	3	54C	54		54C	replicate_cancer_54C	cancer	TRUE	improper replicate	20210812_Daniel Skubleny-Run 2_0354C_03.RCC
+16	homo sapiens	FFPE	2	1	4	62N	62		62N	normal	normal	FALSE		20210812_Daniel Skubleny-Run 2_0462N_04.RCC
+17	homo sapiens	FFPE	2	1	5	66N	66		66N	normal	normal	FALSE		20210812_Daniel Skubleny-Run 2_0566N_05.RCC
+18	homo sapiens	FFPE	2	1	6	66C	66		66C	cancer	cancer	FALSE		20210812_Daniel Skubleny-Run 2_0666C_06.RCC
+19	homo sapiens	organoid	2	1	7	66N-O	66		66N-O	normal_organoid	normal_organoid	FALSE		20210812_Daniel Skubleny-Run 2_0766N-O_07.RCC
+20	homo sapiens	organoid	2	1	8	66C-O	66		66C-O	cancer_organoid	cancer_organoid	FALSE		20210812_Daniel Skubleny-Run 2_0866C-O_08.RCC
+21	homo sapiens	FFPE	2	1	9	67N	67		67N	normal	normal	TRUE	low counts	20210812_Daniel Skubleny-Run 2_0967N_09.RCC
+22	homo sapiens	FFPE	2	1	10	67C	67		67C	cancer	cancer	TRUE	no cancer	20210812_Daniel Skubleny-Run 2_1067C_10.RCC
+23	homo sapiens	organoid	2	1	11	67N-O	67		67N-O	normal_organoid	normal_organoid	FALSE		20210812_Daniel Skubleny-Run 2_1167N-O_11.RCC
+24	homo sapiens	organoid	2	1	12	67C-O	67		67C-O	cancer_organoid	cancer_organoid	TRUE	no cancer	20210812_Daniel Skubleny-Run 2_1267C-O_12.RCC
+25	homo sapiens	FFPE	3	1	1	66C	66		66C	replicate_cancer_66C	cancer	FALSE		20220128_Daniel Skubleny Run 3_0166C_01.RCC
+26	homo sapiens	organoid	3	1	2	55C-O	55		55C-O	replicate_cancer_55C-O	cancer_organoid	FALSE		20220128_Daniel Skubleny Run 3_0255C O_02.RCC
+27	homo sapiens	organoid	3	1	3	64C-O #2	64		64C-O #2	cancer_organoid	cancer_organoid	FALSE		20220128_Daniel Skubleny Run 3_0364C O2_03.RCC
+28	homo sapiens	organoid	3	1	4	57C-O	57		57C-O	cancer_organoid	cancer_organoid	FALSE		20220128_Daniel Skubleny Run 3_0457C O_04.RCC
+29	homo sapiens	FFPE	3	1	5	62C	62		62C	cancer	cancer	FALSE		20220128_Daniel Skubleny Run 3_0562C_05.RCC
+30	homo sapiens	organoid	3	1	6	62C-O	62		62C-O	cancer_organoid	cancer_organoid	FALSE		20220128_Daniel Skubleny Run 3_0662C O_06.RCC
+31	homo sapiens	FFPE	3	1	7	59C	59		59C	cancer	cancer	FALSE		20220128_Daniel Skubleny Run 3_0759C_07.RCC
+32	homo sapiens	organoid	3	1	8	59C-O	59		59C-O	cancer_organoid	cancer_organoid	FALSE		20220128_Daniel Skubleny Run 3_0859C O_08.RCC
+33	homo sapiens	FFPE	3	1	9	64C	64		64C	cancer	cancer	FALSE		20220128_Daniel Skubleny Run 3_0964C_09.RCC
+34	homo sapiens	organoid	3	1	10	64C-O	64		64C-O	cancer_organoid	cancer_organoid	FALSE		20220128_Daniel Skubleny Run 3_1064C O_10.RCC
+35	homo sapiens	organoid	3	1	11	53C-O	53		53C-O	cancer_organoid	cancer_organoid	FALSE		20220128_Daniel Skubleny Run 3_1153C O_11.RCC
+36	homo sapiens	FFPE	3	1	12	68C	68	5096	28	cancer	cancer	TRUE	qc flag	20220128_Daniel Skubleny Run 3_1228_12.RCC
+37	homo sapiens	FFPE	4	1	1	14C	14	3915	8	cancer	cancer	FALSE		20220201_DANIEL SKUBLENY RUN 4_018_01.RCC
+38	homo sapiens	FFPE	4	1	2	69C	69	5097	29	cancer	cancer	TRUE	low counts	20220201_DANIEL SKUBLENY RUN 4_0229_02.RCC
+39	homo sapiens	FFPE	4	1	3	64N	64		64N	normal	normal	FALSE		20220201_DANIEL SKUBLENY RUN 4_0364N_03.RCC
+40	homo sapiens	FFPE	4	1	4	62N	62		62N	replicate_normal_62N	normal	FALSE		20220201_DANIEL SKUBLENY RUN 4_0462N_04.RCC
+41	homo sapiens	FFPE	4	1	5	70C	70	5098	30	cancer	cancer	TRUE	low counts	20220201_DANIEL SKUBLENY RUN 4_0530_05.RCC
+42	homo sapiens	FFPE	4	1	6	1C	1	3766	1	cancer	cancer	FALSE		20220201_DANIEL SKUBLENY RUN 4_061_06.RCC
+43	homo sapiens	FFPE	4	1	7	2C	2	3777	2	cancer	cancer	FALSE		20220201_DANIEL SKUBLENY RUN 4_072_07.RCC
+44	homo sapiens	FFPE	4	1	8	10N	10	3818	4	normal	normal	FALSE		20220201_DANIEL SKUBLENY RUN 4_084_08.RCC
+45	homo sapiens	FFPE	4	1	9	6C	6	SH17-5873-4A	5	cancer	cancer	FALSE		20220201_DANIEL SKUBLENY RUN 4_095_09.RCC
+46	homo sapiens	FFPE	4	1	10	7C	7	3799	6	cancer	cancer	FALSE		20220201_DANIEL SKUBLENY RUN 4_106_10.RCC
+47	homo sapiens	FFPE	4	1	11	10C	10	3819	7	cancer	cancer	FALSE		20220201_DANIEL SKUBLENY RUN 4_117_11.RCC
+48	homo sapiens	FFPE	4	1	12	55C	55		55C	replicate_cancer_55C	cancer	FALSE		20220201_DANIEL SKUBLENY RUN 4_1255C_12.RCC
+49	homo sapiens	FFPE	5	2	1	71C	71		71C	cancer	cancer	FALSE		20220215_Daniel Skubleny Run 5_01 71c_01.RCC
+50	homo sapiens	FFPE	5	2	2	72C	72		72C	cancer	cancer	TRUE	qc flag	20220215_Daniel Skubleny Run 5_02 72c_02.RCC
+51	homo sapiens	organoid	5	2	3	71C-O	71		71C-O	cancer_organoid	cancer_organoid	FALSE		20220215_Daniel Skubleny Run 5_03 71c 0_03.RCC
+52	homo sapiens	organoid	5	2	4	72C-O	72		72C-O	cancer_organoid	cancer_organoid	FALSE		20220215_Daniel Skubleny Run 5_04 72c 0_04.RCC
+53	homo sapiens	organoid	5	2	5	71N-O	71		71N-O	normal_organoid	normal_organoid	FALSE		20220215_Daniel Skubleny Run 5_05 71n 0_05.RCC
+54	homo sapiens	organoid	5	2	6	72N-O	72		72N-O	normal_organoid	normal_organoid	FALSE		20220215_Daniel Skubleny Run 5_06 72n 0_06.RCC
+55	homo sapiens	FFPE	5	2	7	64C	64		64C	replicate_cancer_64C	cancer	FALSE		20220215_Daniel Skubleny Run 5_07 64c 0_07.RCC
+56	homo sapiens	organoid	5	2	8	63C-O	63		63C-O	replicate_cancer_63C-O	cancer_organoid	FALSE		20220215_Daniel Skubleny Run 5_08 63c 0_08.RCC
+57	homo sapiens	organoid	5	2	9	63N-O	63		63N-O	replicate_normal_63N-O	normal_organoid	FALSE		20220215_Daniel Skubleny Run 5_09 63n 0_09.RCC
+58	homo sapiens	FFPE	5	2	10	68C	68		28	cancer	cancer	FALSE		20220215_Daniel Skubleny Run 5_10 28_10.RCC
+59	homo sapiens	FFPE	5	2	11	69C	69		29	cancer	cancer	FALSE		20220215_Daniel Skubleny Run 5_11 29_11.RCC
+60	homo sapiens	FFPE	5	2	12	70C	70		30	cancer	cancer	FALSE		20220215_Daniel Skubleny Run 5_12 30_12.RCC
+61	homo sapiens	FFPE	6	2	1	15C	15		9	cancer	cancer	FALSE		20220216_Daniel Skubleny Run 6_01 9_01.RCC
+62	homo sapiens	FFPE	6	2	2	18C	18		10	cancer	cancer	FALSE		20220216_Daniel Skubleny Run 6_02 10_02.RCC
+63	homo sapiens	FFPE	6	2	3	20C	20		11	cancer	cancer	FALSE		20220216_Daniel Skubleny Run 6_03 11_03.RCC
+64	homo sapiens	FFPE	6	2	4	19C	19		12	cancer	cancer	FALSE		20220216_Daniel Skubleny Run 6_04 12_04.RCC
+65	homo sapiens	FFPE	6	2	5	21C	21		13	cancer	cancer	FALSE		20220216_Daniel Skubleny Run 6_05 13_05.RCC
+66	homo sapiens	FFPE	6	2	6	22C	22		14	cancer	cancer	FALSE		20220216_Daniel Skubleny Run 6_06 14_06.RCC
+67	homo sapiens	FFPE	6	2	7	1C	1	3766	1	replicate_cancer_1C	cancer	FALSE		20220216_Daniel Skubleny Run 6_07 1_07.RCC
+68	homo sapiens	FFPE	6	2	8	23C	23		15	cancer	cancer	FALSE		20220216_Daniel Skubleny Run 6_08 15_08.RCC
+69	homo sapiens	FFPE	6	2	9	28C	28		17	cancer	cancer	FALSE		20220216_Daniel Skubleny Run 6_09 17_09.RCC
+70	homo sapiens	FFPE	6	2	10	29C	29		18	cancer	cancer	FALSE		20220216_Daniel Skubleny Run 6_10 18_10.RCC
+71	homo sapiens	FFPE	6	2	11	30C	30		19	cancer	cancer	FALSE		20220216_Daniel Skubleny Run 6_11 19_11.RCC
+72	homo sapiens	FFPE	6	2	12	31C	31		20	cancer	cancer	FALSE		20220216_Daniel Skubleny Run 6_12 20_12.RCC
+73	homo sapiens	FFPE	7	2	1	32C	32		21	cancer	cancer	FALSE		20220301_Daniel Skubleny Run 7_01 21_01.RCC
+74	homo sapiens	FFPE	7	2	2	36C	36		22	cancer	cancer	FALSE		20220301_Daniel Skubleny Run 7_02 22_02.RCC
+75	homo sapiens	FFPE	7	2	3	38C	38		23	cancer	cancer	FALSE		20220301_Daniel Skubleny Run 7_03 23_03.RCC
+76	homo sapiens	FFPE	7	2	4	42C	42		24	cancer	cancer	FALSE		20220301_Daniel Skubleny Run 7_04 24_04.RCC
+77	homo sapiens	FFPE	7	2	5	46C	46		25	cancer	cancer	FALSE		20220301_Daniel Skubleny Run 7_05 25_05.RCC
+78	homo sapiens	FFPE	7	2	6	68C	68		28	cancer	cancer	FALSE		20220301_Daniel Skubleny Run 7_06 28_06.RCC
+79	homo sapiens	FFPE	7	2	7	69C	69		29	cancer	cancer	FALSE		20220301_Daniel Skubleny Run 7_07 29_07.RCC
+80	homo sapiens	FFPE	7	2	8	4C	4		pt 4	cancer	cancer	FALSE		20220301_Daniel Skubleny Run 7_08 pt4_08.RCC
+81	homo sapiens	FFPE	7	2	9	66C	66		66C	replicate_cancer_66C	cancer	FALSE		20220301_Daniel Skubleny Run 7_09 66c_09.RCC
+82	homo sapiens	FFPE	7	2	10	3C	3	DL1112-4D	3	cancer	cancer	FALSE		20220301_Daniel Skubleny Run 7_10 3_10.RCC
+83	homo sapiens	FFPE	7	2	11	72C	72		72C	cancer	cancer	FALSE		20220301_Daniel Skubleny Run 7_11 72c_11.RCC
+84	homo sapiens	FFPE	7	2	12	70C	70		30	cancer	cancer	FALSE		20220301_Daniel Skubleny Run 7_12 30_12.RCC
+85	homo sapiens		8	2	1									
+86	homo sapiens		8	2	2									
+87	homo sapiens		8	2	3									
+88	homo sapiens		8	2	4									
+89	homo sapiens		8	2	5									
+90	homo sapiens		8	2	6									
+91	homo sapiens		8	2	7									
+92	homo sapiens		8	2	8									
+93	homo sapiens		8	2	9									
+94	homo sapiens		8	2	10									
+95	homo sapiens		8	2	11									
+96	homo sapiens		8	2	12									
