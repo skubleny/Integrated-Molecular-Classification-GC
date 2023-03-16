@@ -1,0 +1,2106 @@
+---
+title: "Nanostring subtyping publication without 67"
+author: "Daniel Skubleny"
+date: '2023-03-05'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+Libraries <- c('matrixStats', 'ruv', 'NanoStringNorm', 'data.table','NormqPCR',
+               'ComplexHeatmap','dplyr', 'plotrix', 'tuple', 'scales', 'ggplot2')
+lapply(Libraries, require, character.only = TRUE)
+rm(Libraries)
+
+```
+#FSQN fxn
+```{r}
+library(preprocessCore)
+quantileNormalizeByFeature <- function(matrix_to_normalize,
+                                       target_distribution_matrix){
+
+    if (ncol(matrix_to_normalize) != ncol(target_distribution_matrix)){
+        cat("ERROR: Data matrices are not compatible - column lengths differ!")
+    }
+    else{
+
+        data.qn <- matrix(0, nrow = nrow(matrix_to_normalize),
+                          ncol = ncol(matrix_to_normalize))
+
+        for (i in 1:ncol(matrix_to_normalize)){
+            feature.to.normalize <- matrix_to_normalize[,i]
+            target.feature.dist <- target_distribution_matrix[,i]
+            result <- normalize.quantiles.use.target(
+                x = as.matrix(feature.to.normalize),
+                target = target.feature.dist,
+                copy = TRUE)
+            data.qn[,i] <- result
+        }
+        rownames(data.qn) = rownames(matrix_to_normalize)
+        colnames(data.qn) = colnames(matrix_to_normalize)
+        return(data.qn)
+    }
+}
+```
+#Import necessary data
+```{r}
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/tcganormalizer.csv'
+tcganormalizer <-read.csv(urlfile,row.names = 1)
+
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/log_ACRG_cancer.csv'
+log_ACRG_cancer <-read.csv(urlfile,row.names = 1)
+
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/TCGAfinalgenes.csv'
+TCGAfinalgenes <-read.csv(urlfile)
+TCGAfinalgenes = TCGAfinalgenes[,2]
+
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/rntop50.csv'
+rntop50 <-read.csv(urlfile)
+rntop50 = rntop50[,2]
+
+```
+
+#////////FFPE - gene specific normalization//////////
+#TCGA RUVIII Normalization cancers with tcga only genes
+```{r}
+#***** Reading Nanostring gene expression raw data
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/run1-7.txt'
+Nano_ExpressionMatrix <-read.delim(urlfile,stringsAsFactors = FALSE, header = TRUE, as.is = TRUE)
+
+#***** Reading sample and clinical information
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/nanostring_samples_final.txt'
+Nano_SampleInfo <-read.delim(urlfile,stringsAsFactors = FALSE, header = TRUE, as.is = TRUE)
+Nano_SampleInfo = Nano_SampleInfo[c(1:84),]
+
+dim(Nano_SampleInfo) # 24 12
+table(Nano_SampleInfo$Tissues)
+
+
+#Exclude poor samples
+exclude = Nano_SampleInfo$exclude=="TRUE" 
+Nano_SampleInfo = Nano_SampleInfo[!(Nano_SampleInfo$exclude=="TRUE"),] 
+Nano_SampleInfo = dplyr::select(Nano_SampleInfo, -"exclusion_reason")
+
+
+Nano_RawCounts = dplyr::filter(Nano_ExpressionMatrix, subtype=="TCGA" | subtype=="Negative" | subtype=="Positive"| subtype=="Housekeeping")
+
+#***** Expression matrix
+Nano_RawCounts <- as.matrix(Nano_RawCounts[ , 5:ncol(Nano_RawCounts)])
+exclude = colnames(Nano_RawCounts[,exclude])
+Nano_RawCounts = Nano_RawCounts[ , !(colnames(Nano_RawCounts) %in% exclude)]
+
+
+
+#Exclude organoids OR FFPE OR Cancer OR normal
+exclude = Nano_SampleInfo$sample_type=="organoid"
+exclude = colnames(Nano_RawCounts[,exclude])
+Nano_RawCounts = Nano_RawCounts[ , !(colnames(Nano_RawCounts) %in% exclude)]
+Nano_SampleInfo = Nano_SampleInfo[!(Nano_SampleInfo$sample_type=="organoid"),] 
+
+exclude = Nano_SampleInfo$Tissues=="normal"
+exclude = colnames(Nano_RawCounts[,exclude])
+Nano_RawCounts = Nano_RawCounts[ , !(colnames(Nano_RawCounts) %in% exclude)]
+Nano_SampleInfo = Nano_SampleInfo[!(Nano_SampleInfo$Tissues=="normal"),] 
+
+row.names(Nano_RawCounts) <- Nano_ExpressionMatrix[Nano_ExpressionMatrix$subtype=="TCGA" | Nano_ExpressionMatrix$subtype=="Negative" |Nano_ExpressionMatrix$subtype=="Positive" |Nano_ExpressionMatrix$subtype=="Housekeeping" ,]$Probe.Name
+Nano_SampleInfo$SampleNames <- colnames(Nano_RawCounts)
+
+
+##################################################################################################################################
+##################################################################  Exploratory  data analysis – raw counts #####################
+#***** Colors for each cartridges
+Color_Batches <- c('purple','orange','darkred','blue','chartreuse',
+                   'darkgoldenrod4','tan2','darkgreen','red3','darkmagenta',
+                   'deeppink','violet','navy','red','dodgerblue')
+
+#***** box plot of raw data - Endogenous genes only
+
+svg(filename="tcga_ffpe_unormalized.svg", width=8, height=5)
+
+RawCounts_log <- log2(Nano_RawCounts[1:78 , ]+1) # Excluding 7 housekeeping genes and Nanostring spike-ins
+par(mar = c(6.5,6.5,2.3,0), mgp = c(3.7 , 1 , 0))
+boxplot(RawCounts_log, las = 1, cex.axis = 2, ylab = '' , xlab = '', cex.lab = 4,
+        xaxt = 'n', yaxt = 'n', main = 'Unnormalized counts', cex.main = 3.5,
+        outline = FALSE, names = FALSE, frame = FALSE,
+        whisklty = 3, whisklwd = 1.5, staplelty = 1, notch = TRUE, boxlwd = 2,
+        staplelwd = 0 , boxcol = Color_Batches[factor(Nano_SampleInfo$Cartridges)],
+        border = Color_Batches[factor(Nano_SampleInfo$cartridge)] , col='gray87')
+box(lwd = 7, bty = 'l')
+axis(1, cex.axis=1, at = c(1, seq(20,166,20)), cex.axis = 2.5, lwd.ticks = 4, mgp = c(3.5,1.6,0))
+axis(2, at = c(0, seq(3,15,3)), mgp = c(3.5,.9,0), lwd.ticks = 4, las = 1, cex.axis=3)
+mtext(expression(paste('Samples', '(', 'n'[samples], '=', '162', ')')), 1, line = 4.5, cex = 2.5)
+mtext(expression(paste(Log[2],' (raw counts)')), 2, line = 3.5, cex = 2.7)
+dev.off()
+
+#***** RLE plot - Figure 1 A - Unormalized
+par(mar = c(6.5,6.5,2.3,0))
+boxplot(RawCounts_log - rowMedians(RawCounts_log),
+        main = '', xlab = '', ylab = '', xaxt = 'n', yaxt = 'n', ylim = c(-4.1,4.1),
+        outline = FALSE, names = FALSE, frame = FALSE, whisklty = 3, whisklwd = 1.5, staplelty = 1, notch = TRUE, boxlwd = 2,
+        staplelwd = 0 , boxcol = Color_Batches[factor(Nano_SampleInfo$cartridge)],
+        border = Color_Batches[factor(Nano_SampleInfo$cartridge)], col = 'gray87')
+box(lwd = 7, bty = 'l')
+title('Unnormalized counts', line = -2, cex.main = 3.5)
+Median_RawData <- apply(RawCounts_log - rowMedians(RawCounts_log), 2, median)
+points(c(1:ncol(RawCounts_log)), Median_RawData, col = Color_Batches[factor(Nano_SampleInfo$cartridge)], pch = 19, cex = 1.2)
+axis(2, mgp = c(3.5, .9 ,0), lwd.ticks=6, las=1, cex.axis=3)
+mtext('RLE', 2, line = 3.5, cex = 3.5)
+abline(h = 0, col = 'black', lwd = 5, lty = 2)
+par(lwd = 3)
+legend(160, 4.1, legend = c(1,2,3,'.','.','.', 13,14,15),
+       col = c(Color_Batches[1:3], rep('white', 3), Color_Batches[13:15]),
+       pch = 19, bty = 'n', cex = 1.4)
+text(x = 162, y = 4.2 ,labels  = 'Cartridges', cex = 1.5)
+rm(Median_RawData)
+
+
+#####LONG 
+counts = RawCounts_log - rowMedians(RawCounts_log)
+counts = as.data.frame(t(counts))
+counts$ID <- seq.int(nrow(counts))
+counts$batchid = Nano_SampleInfo$cartridge
+
+counts_long <- tidyr::gather(counts, gene, measurement, ABCB6:POS_F, factor_key=TRUE)
+counts_long$ID = as.factor(counts_long$ID)
+counts_long$batchid = as.factor(counts_long$batchid)
+
+unnormalized_counts_tcga = ggplot(counts_long, aes(x=ID, y=measurement, fill=batchid)) + 
+      geom_boxplot(notch=TRUE, outlier.shape=NA) +
+      geom_hline(yintercept=0, size =1.5, alpha=0.7) +
+      ggtitle("Unnormalized Counts TCGA Nanostring Genes") +
+      xlab("Sample") + 
+  ylab("Relative Log2 Expression") +
+  ylim(-6,6) +
+  theme_classic()  + 
+  theme(axis.text.x = element_blank()) +
+  theme(axis.text.y = element_text(colour="black",size = 13)) + 
+  theme(plot.title = element_text(face="plain", colour="black", size=13,hjust = 0)) +
+  theme(axis.title.x = element_text(colour="black", size =13)) +
+  theme(axis.title.y = element_text(colour="black", size=13)) +
+  theme(legend.position = "none")
+
+ggsave("unnormalized_counts_tcga_final.svg", unnormalized_counts_tcga, width=6, height=3)
+
+#***** Average plot
+### Average of Nanostring positive spike-ins controls
+Mean_NegativeControlProbes <- apply(Nano_RawCounts[65:72, ], 2, mean)
+### Average of Nanostring positive spike-ins controls
+Mean_PositiveControlProbes <- apply(Nano_RawCounts[73:78, ], 2, mean)
+### Average of housekeeping genes
+Mean_HousekeepingGenes <- apply(Nano_RawCounts[58:64, ], 2, mean)
+### Library size
+LibrarySize <- colSums(Nano_RawCounts [ 1:78, ])
+
+#### Average plots -  Supplementary Figure 2
+par(mar = c(6,7,0,0))
+plot(log2(LibrarySize), ylim = c(0,22), bty = 'l', typ = 'n', ylab = '', xlab = '', xaxt = 'n', yaxt = 'n')
+axis(1, cex.axis = 1, at = c(1, seq(20,166,20)), cex.axis = 2, lwd.ticks = 4, mgp = c(3.5,1.4,0))
+axis(2, cex.axis = 1, cex.axis = 2, lwd.ticks = 4, mgp = c(3.5,1,0), las = 1)
+mtext(expression(paste(Log [2], ' (raw counts)')), 2, line = 3.5, cex = 3)
+mtext(expression(paste('Samples', ' (', 'n'[samples], '=', '21', ')')), 1, line = 4.5, cex = 2.5)
+X <- c(0,6,18,30,42,53,65,77,89,101,113,125,137,143,155,167)
+GradiantColors <- paste0('gray', seq(90,20, by = -5))
+for(i in 1:15) rect(X[i],-5, X[i+1], 22, col = GradiantColors[i], lty = 0 )
+points(log2(LibrarySize), col = alpha('darkgoldenrod1', .8), pch = 15, cex = 1.8, lwd = 1.5)
+lines(smooth.spline(c(1:length(LibrarySize)), log2(LibrarySize), df = 5), col = 'darkgoldenrod1', lwd = 4)
+points(log2(Mean_HousekeepingGenes) + 3, cex = 2, col = alpha('red', .6), pch = 19)
+lines(smooth.spline(c(1:length(LibrarySize)), log2(Mean_HousekeepingGenes) + 3, df = 5), col = 'red', lwd = 4)
+points(log2(Mean_PositiveControlProbes) - 1, col = alpha('cyan2', .8), pch = 18, cex = 2.5)
+lines(smooth.spline(c(1:length(LibrarySize)), log2(Mean_PositiveControlProbes) - 1, df = 5), col = 'cyan1', lwd = 4)
+points(log2(Mean_NegativeControlProbes), col = alpha('green2', .6), pch = 17, cex = 1.8)
+lines(smooth.spline(c(1:length(LibrarySize)), log2(Mean_NegativeControlProbes), df = 5), col = 'green2', lwd = 4)
+box(lwd = 5, bty = 'l')
+rm(X, GradiantColors, Mean_NegativeControlProbes,
+   Mean_PositiveControlProbes, Mean_HousekeepingGenes,
+   LibrarySize)
+
+
+#***** Log ratio between all pairs of duplicated samples
+DuplicatedSamples <- tuplicate(Nano_SampleInfo$Patient.barcodes, 2)
+length(DuplicatedSamples) 
+
+LogRatio_TechRep_RawCounts <- vector()
+for(i in 1:7){
+  index <- Nano_SampleInfo$Patient.barcodes == DuplicatedSamples[i]
+  RepData <- RawCounts_log [ , index]
+  LogRatio <- as.data.frame(RepData[ , 1] - RepData[ , 2] )
+  colnames(LogRatio) <- 'LogRatio'
+  LogRatio$Replicates <- rep( i , 78)
+  LogRatio_TechRep_RawCounts <- rbind(LogRatio_TechRep_RawCounts , LogRatio)
+  rm(i, index, RepData, LogRatio)
+}
+nrow(LogRatio_TechRep_RawCounts)/78 # 17
+LogRatio_TechRep_RawCounts$Datasets <- 'Unnormalized'
+
+
+
+
+##################################################################################################################################
+############################################### RUV-III normalization - using technical replicates and control genes #############
+
+#***** Creating replicate matrix
+length(Nano_SampleInfo$Patient.barcodes) # 162
+length(unique(Nano_SampleInfo$Patient.barcodes)) # 135
+
+ReplicateMatrix <- ruv::replicate.matrix(Nano_SampleInfo$Patient.barcodes)
+dim(ReplicateMatrix) # 162 133
+
+### Making sure that every row has got only one number
+par(mfrow = c(2,1))
+barplot(colSums(ReplicateMatrix))
+barplot(rowSums(ReplicateMatrix))
+par(mfrow = c(1,1))
+
+
+#***** Finding control genes
+### Step 1: Using all genes as a set of negative control genes
+# Performing RUVIII
+dataRUV <- t(log2(Nano_RawCounts[1:57, ] + 1))
+RUVcorrected <- ruv::RUVIII(Y = dataRUV, M = ReplicateMatrix, ctl = c(1:57))
+RUVcorrected <- t(RUVcorrected)
+
+### Step 2: Selecting the most stable genes from step 1
+LowVarGenes <- apply(RUVcorrected, 1, var)
+ControlGenes <- which(LowVarGenes < .5)
+length(ControlGenes) # 15 genes
+
+
+### Step3: Performing RUV-III using the ControlGenes set
+RUVcorrected <- RUVIII(Y = dataRUV, M = ReplicateMatrix, ctl = ControlGenes, k = 7)
+RUVcorrected <- t(RUVcorrected)
+dim(RUVcorrected)
+# We tried different numbers of k based on our positive controls####
+all(colnames(RUVcorrected) == Nano_SampleInfo$SampleNames) ## TRUE
+
+
+#***** RLE plots - Figure 1 A, RUV-III normalization
+par(mar = c(6.5,6.5,2.3,0))
+boxplot(RUVcorrected - rowMedians(RUVcorrected), main = '', xlab = '', ylab = '', xaxt = 'n', yaxt = 'n', ylim = c(-4.1,4.1),
+        outline = FALSE, names = FALSE, frame = FALSE, whisklty = 3, whisklwd = 1.5, staplelty = 1, notch = TRUE, boxlwd = 2,
+        staplelwd = 0 , boxcol = Color_Batches[factor(Nano_SampleInfo$cartridge)],
+        border = Color_Batches[factor(Nano_SampleInfo$cartridge)], col = 'gray87')
+box(lwd = 7, bty = 'l')
+title('RUV-III normalized', line = -2, cex.main = 3.5)
+Median_RUV <- apply(RUVcorrected - rowMedians(RUVcorrected), 2, median)
+points(c(1:ncol(RUVcorrected)), Median_RUV, col = Color_Batches[factor(Nano_SampleInfo$cartridge)], pch = 19, cex = 1.2)
+axis(1, cex.axis = 1, at = c(1, seq(20,166,20)), cex.axis = 2.5, lwd.ticks = 6,  mgp = c(3.5,1.6,0))
+axis(2, mgp = c(3.5,.9,0), lwd.ticks = 6, las = 1, cex.axis = 3)
+mtext(expression(paste('Samples','(', 'n'[samples], '=', '162', ')')),1 ,line = 5, cex = 3)
+mtext('RLE', 2, line = 3.5, cex = 3.5)
+abline(h = 0, col = 'black', lwd = 5, lty = 2)
+
+#####ggplot long
+
+#####LONG 
+counts = RUVcorrected - rowMedians(RUVcorrected)
+counts = as.data.frame(t(counts))
+counts$ID <- seq.int(nrow(counts))
+counts$batchid = Nano_SampleInfo$cartridge
+
+counts_long <- tidyr::gather(counts, gene, measurement, ABCB6:YBEY, factor_key=TRUE)
+counts_long$ID = as.factor(counts_long$ID)
+counts_long$batchid = as.factor(counts_long$batchid)
+
+normalized_counts_tcga = ggplot(counts_long, aes(x=ID, y=measurement, fill=batchid)) + 
+      geom_boxplot(notch=TRUE, outlier.shape=NA) +
+      geom_hline(yintercept=0, size =1.5, alpha=0.7) +
+      ggtitle("RUV-III Normalized Counts TCGA Nanostring Genes") +
+      xlab("Sample") + 
+  ylab("Relative Log2 Expression") +
+  ylim(-6,6) +
+  theme_classic()  + 
+  theme(axis.text.x = element_blank()) +
+  theme(axis.text.y = element_text(colour="black",size = 13)) + 
+  theme(plot.title = element_text(face="plain", colour="black", size=13,hjust = 0)) +
+  theme(axis.title.x = element_text(colour="black", size =13)) +
+  theme(axis.title.y = element_text(colour="black", size=13)) +
+  theme(legend.position = "none")
+
+ggsave("normalized_counts_tcga_final.svg", normalized_counts_tcga, width=6, height=3)
+
+#######
+
+#***** Correlation between JAK2 and CDKN2A in cancer samples
+RUVIII_CancerData <- RUVcorrected[ , Nano_SampleInfo$Tissues=="cancer"]
+dim(RUVIII_CancerData) ## 587 150
+BioCo_RUV <- cor.test(unlist(t(RUVIII_CancerData['CDKN2A' , ])) , unlist(t(RUVIII_CancerData[ 'JAK2' , ])), method = "spearman")[[4]]
+par(mar = c(5,5,2,1))
+plot (RUVIII_CancerData[ "CDKN2A", ], RUVIII_CancerData [ "JAK2" , ],
+      las = 1, pch = 21, col = "cyan", bg = 'blue', lwd = 1.2,
+      main = "RUV-III normalized", bty = "l", cex.main = 2, mgp = c(3.2,.8,0),
+      cex.axis = 1.7, cex.lab = 1.5, cex = 2.5, lwd.ticks = 3, ylab = "" ,
+      xlab = expression(paste(italic(RRM1) , " (", log[2] , " normalized counts" , ")")))
+mtext(expression(paste(italic(ERCC1) , " (", log[2] , " normalized counts" , ")")), 2, line = 3, cex = 1.5)
+title(paste('(r = ', round(BioCo_RUV, digits = 2), ')'), line = -.5, cex = 1.4)
+box(lwd = 6, bty = "l")
+
+
+#***** Log DIFFERENCE between technical duplicated - per the paper
+### Assessing the perfromance of RUV-III using 'leave out one duplicate'
+DuplicatedSamples <- tuplicate(Nano_SampleInfo$Patient.barcodes, 2)
+length(DuplicatedSamples) # 17
+LogRatio_TechRep_RUVIII <- vector()
+dataRUV <- t(log2(Nano_RawCounts[1:57, ] +1))
+
+for(l in 1:length(DuplicatedSamples)){
+  index <- Nano_SampleInfo$Patient.barcodes == DuplicatedSamples[l]
+  info <- Nano_SampleInfo
+  info$Patient.barcodes[index] <- c('Rep1', 'Rep2')
+  X <- length(info$Patient.barcodes)
+  Y <- length(unique(info$Patient.barcodes))
+  
+  ReplicateMatrix <- matrix(0, nrow = X, ncol = Y)
+  row.names(ReplicateMatrix) <- info$Patient.barcodes
+  colnames(ReplicateMatrix) <- unique(info$Patient.barcodes)
+  for(i in 1:Y){
+    n <- colnames(ReplicateMatrix)[i]
+    sa <- which(row.names(ReplicateMatrix)==n)
+    for(j in 1:length(sa)){
+      ReplicateMatrix [sa[j] , i] <- 1
+    }
+  }
+  RUVcorrected_Data <- ruv::RUVIII(dataRUV , ReplicateMatrix , ctl = ControlGenes, k = 7)
+  RUVcorrected_Data <- t(RUVcorrected_Data)
+  index <- which(index)
+  LogRatio <- as.data.frame( (RUVcorrected_Data[ , index[1]] ) - (RUVcorrected_Data[ , index[2]]) )
+  colnames(LogRatio) <- 'LogRatio'
+  LogRatio$Replicates <- rep(l , 57)
+  LogRatio_TechRep_RUVIII <- rbind(LogRatio_TechRep_RUVIII , LogRatio)
+  rm(i, index, info, X, Y, LogRatio)
+  
+}
+nrow(LogRatio_TechRep_RUVIII)/57
+LogRatio_TechRep_RUVIII$Datasets <- 'RUV-III normalized'
+
+
+#***** Technical Replicate Agreement plot for unnormalized, Nanostring Normalization and RUV-III (leave out one technical replicate)
+### Figure 1 B
+TRAallNormalizations <- rbind(LogRatio_TechRep_RawCounts, LogRatio_TechRep_RUVIII)
+TRAallNormalizations$Replicates <- as.factor(TRAallNormalizations$Replicates)
+TRAallNormalizations$Datasets <- as.factor(TRAallNormalizations$Datasets)
+TRAallNormalizations$Datasets  <- factor(TRAallNormalizations$Datasets , levels = c('Unnormalized','RUV-III normalized'))
+ggplot(data = TRAallNormalizations) +
+  geom_boxplot(aes(y = LogRatio, x = Replicates, fill = Datasets, color=Datasets), outlier.size = .5,
+               position = position_dodge(width = .7),
+               width = 1, alpha = 0.8, lwd = .7) +
+  ylab('Log ratio')+ylim(c(-10,10)) +
+  scale_color_manual(values = c('lightblue', 'royalblue', 'navy')) +
+  scale_fill_manual(values = c('lightblue', 'royalblue', 'navy')) +
+  theme_classic() +
+  geom_hline(yintercept = 0, lty = 2, lwd = .6, col = 'red')+
+  theme(axis.title = element_text(size = 25),
+        axis.text.x = element_text(size = 20),
+        axis.text.y = element_text(size = 20),
+        axis.line = element_line(size = 1.5),
+        legend.title = element_text(size = 20, face = c('italic', 'bold')),
+        legend.text = element_text(size = 20),
+        legend.position = "top", legend.direction = "horizontal")
+
+log_diff_tcga = ggplot(data = TRAallNormalizations) +
+  geom_boxplot(aes(y = LogRatio, x = Replicates, fill = Datasets, color=Datasets), outlier.size = .5,
+               position = position_dodge(width = .7),
+               width = 1, alpha = 0.8, lwd = .7) +
+  ylab('Log difference')+ylim(c(-10,10)) +
+  scale_color_manual(values = c('lightblue', 'royalblue', 'navy')) +
+  scale_fill_manual(values = c('lightblue', 'royalblue', 'navy')) +
+  ggtitle("Technical replicate agreement plot") +
+  theme_classic() +
+  geom_hline(yintercept = 0, lty = 2, lwd = .6, col = 'red')+
+  theme(axis.title = element_text(size = 13),
+        axis.text.x = element_text(size = 13),
+        axis.text.y = element_text(size = 13),
+        legend.title = element_text(size = 13),
+        legend.text = element_text(size = 13),
+        legend.position = c(0.5,0.92), legend.direction = "horizontal")
+ggsave("log_diff_tcga_final.svg", log_diff_tcga, width=6, height=3)
+
+############################################FINAL NORMALIZATION###################################################
+length(Nano_SampleInfo$Patient.barcodes) # 162
+length(unique(Nano_SampleInfo$Patient.barcodes)) # 135
+
+ReplicateMatrix <- ruv::replicate.matrix(Nano_SampleInfo$Patient.barcodes)
+dim(ReplicateMatrix) # 162 133
+#***** Finding control genes
+### Step 1: Using all genes as a set of negative control genes
+# Performing RUVIII
+dataRUV <- t(log2(Nano_RawCounts[1:57, ] +1))
+RUVcorrected <- ruv::RUVIII(Y = dataRUV, M = ReplicateMatrix, ctl = c(1:57))
+RUVcorrected <- t(RUVcorrected)
+
+### Step 2: Selecting the most stable genes from step 1
+LowVarGenes <- apply(RUVcorrected, 1, var)
+ControlGenes <- which(LowVarGenes < .5)
+length(ControlGenes) # 15 genes
+
+
+### Step3: Performing RUV-III using the ControlGenes set
+RUVcorrected <- RUVIII(Y = dataRUV, M = ReplicateMatrix, ctl = ControlGenes, k = 7)
+RUVcorrected <- t(RUVcorrected)
+dim(RUVcorrected)
+# We tried different numbers of k based on our positive controls
+all(colnames(RUVcorrected) == Nano_SampleInfo$SampleNames) ## TRUE
+
+tcga_ffpe_RUVcorrected= RUVcorrected
+```
+
+###TCGA RUVIII subtype
+```{r}
+log_nanostring_1 = RUVcorrected
+```
+```{r}
+#Check if quantile normalization is required.
+colramp = colorRampPalette(c(3,"white",2))(20)
+plot(density(log_nanostring_1[,1]),col=colramp[1],lwd=1,ylim=c(0,.30), xlim=c(-20,20))
+for(i in 2:9){lines(density(log_nanostring_1[,i]),lwd=1,col=colramp[i])}
+#In the plot we can see that quantile normalization will aid in the data analysis
+```
+```{r}
+cancer_nanostring_1 <- subset(log_nanostring_1, rownames(log_nanostring_1) %in% as.matrix(TCGAfinalgenes))
+cancer_nanostring_1 = t(cancer_nanostring_1)
+```
+```{r}
+#FSQN the cancers
+
+#TCGA FSQN to TCGA as reference.
+set.seed(99)   
+target = as.matrix(tcganormalizer)
+test = as.matrix(cancer_nanostring_1)
+classify_TCGA = quantileNormalizeByFeature(test, target)
+
+colramp = colorRampPalette(c(3,"white",2))(20)
+colramp2 = colorRampPalette(c(6,"white",4))(20)
+
+svg(filename="prefsqn_tcga_nanostring_ffpe_final.svg", width=4.5, height=4)
+par(mar = c(3.1, 4.1, 2.1, 2.1), mgp=c(2, 0.5, 0))
+plot(density(t(target)[,1]), 
+     main = "", 
+     xlab = expression("Log"[2]*" Expression"), 
+     xlim = c(-8,17),
+     ylim = c(0,.32), 
+     cex.lab=1.3,
+     lwd=2, 
+     col=colramp[1])
+        for(i in 2:100){lines(density(t(target)[,i]),lwd=2,col=colramp[i])
+        for(i in 2:47){lines(density(t(test)[,i]),lwd=2,col=colramp2[i])}}
+    text(0, 0.27, labels="RUV-III")
+    text(8.81, 0.31, labels="Target")
+    title("Pre-FSQN", adj = 0, font.main= 1)
+dev.off()
+
+svg(filename="fsqn_tcga_nanostring_ffpe_final.svg", width=4.5, height=4)
+par(mar = c(3.1, 4.1, 2.1, 2.1), mgp=c(2, 0.5, 0))
+plot(density(t(target)[,1]), 
+     main = "",
+     xlab = expression("Log"[2]*" Expression"), 
+     xlim = c(-8,17),
+     ylim = c(0,.32), 
+     cex.lab=1.3,
+     lwd=2, 
+     col=colramp[1])
+        for(i in 2:100){lines(density(t(target)[,i]),lwd=2,col=colramp[i])
+        for(i in 2:47){lines(density(t(classify_TCGA)[,i]),lwd=2,col=colramp2[i])}}
+     text(8.81, 0.31, labels="Target/RUV-III")
+     title("Post-FSQN", adj = 0, font.main= 1)
+dev.off()
+
+```
+```{r}
+#Reduce to final genes
+
+classify_TCGA <- classify_TCGA[, TCGAfinalgenes]
+```
+```{r}
+#Classify the cancers according to TCGA 
+
+predict.classify_TCGA = predict(TCGA.finalmodel,classify_TCGA)
+predict.classify_TCGA_prob = predict(TCGA.finalmodel,classify_TCGA, type = "prob")
+TCGA_ffpe = predict.classify_TCGA_prob 
+
+table(predict.classify_TCGA)
+
+TCGA_ffpe = tibble::rownames_to_column(TCGA_ffpe, "sample_id")
+
+
+TCGA_ffpe_names = Nano_SampleInfo
+TCGA_ffpe_names = dplyr::select(TCGA_ffpe_names, c("Patient.barcodes","SampleNames"))
+
+TCGA_ffpe = merge(TCGA_ffpe, TCGA_ffpe_names, by.x="sample_id", by.y="SampleNames")
+TCGA_ffpe = TCGA_ffpe[,-1]
+colnames(TCGA_ffpe)[which(names(TCGA_ffpe) == "Patient.barcodes")] <- "sample_id"
+
+
+
+TCGA_ffpe %>% group_by(sample_id) %>% summarise_all(mean) %>% data.frame() -> TCGA_ffpe
+
+TCGA_ffpe[,c(2:6)] = TCGA_ffpe[,c(2:5)] %>% mutate('TCGA_subtype'=names(.)[apply(., 1, which.max)])
+```
+
+#TME RUVIII Normalization cancers with TME only genes
+
+```{r}
+#***** Reading Nanostring gene expression raw data
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/run1-7.txt'
+Nano_ExpressionMatrix <-read.delim(urlfile,stringsAsFactors = FALSE, header = TRUE, as.is = TRUE)
+
+#***** Reading sample and clinical information
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/nanostring_samples_final.txt'
+Nano_SampleInfo <-read.delim(urlfile,stringsAsFactors = FALSE, header = TRUE, as.is = TRUE)
+Nano_SampleInfo = Nano_SampleInfo[c(1:84),]
+
+dim(Nano_SampleInfo) # 24 12
+table(Nano_SampleInfo$Tissues)
+
+
+#Exclude poor samples
+exclude = Nano_SampleInfo$exclude=="TRUE" 
+Nano_SampleInfo = Nano_SampleInfo[!(Nano_SampleInfo$exclude=="TRUE"),] 
+Nano_SampleInfo = dplyr::select(Nano_SampleInfo, -"exclusion_reason")
+
+
+Nano_RawCounts = dplyr::filter(Nano_ExpressionMatrix, subtype=="TME" | subtype=="Negative" | subtype=="Positive"| subtype=="Housekeeping")
+
+#***** Expression matrix
+Nano_RawCounts <- as.matrix(Nano_RawCounts[ , 5:ncol(Nano_RawCounts)])
+exclude = colnames(Nano_RawCounts[,exclude])
+Nano_RawCounts = Nano_RawCounts[ , !(colnames(Nano_RawCounts) %in% exclude)]
+
+
+
+#Exclude organoids OR FFPE OR Cancer OR normal
+exclude = Nano_SampleInfo$sample_type=="organoid"
+exclude = colnames(Nano_RawCounts[,exclude])
+Nano_RawCounts = Nano_RawCounts[ , !(colnames(Nano_RawCounts) %in% exclude)]
+Nano_SampleInfo = Nano_SampleInfo[!(Nano_SampleInfo$sample_type=="organoid"),] 
+
+exclude = Nano_SampleInfo$Tissues=="normal"
+exclude = colnames(Nano_RawCounts[,exclude])
+Nano_RawCounts = Nano_RawCounts[ , !(colnames(Nano_RawCounts) %in% exclude)]
+Nano_SampleInfo = Nano_SampleInfo[!(Nano_SampleInfo$Tissues=="normal"),] 
+
+row.names(Nano_RawCounts) <- Nano_ExpressionMatrix[Nano_ExpressionMatrix$subtype=="TME" | Nano_ExpressionMatrix$subtype=="Negative" |Nano_ExpressionMatrix$subtype=="Positive" |Nano_ExpressionMatrix$subtype=="Housekeeping" ,]$Probe.Name
+Nano_SampleInfo$SampleNames <- colnames(Nano_RawCounts)
+
+
+##################################################################################################################################
+##################################################################  Exploratory  data analysis – raw counts #####################
+#***** Colors for each cartridges
+Color_Batches <- c('purple','orange','darkred','blue','chartreuse',
+                   'darkgoldenrod4','tan2','darkgreen','red3','darkmagenta',
+                   'deeppink','violet','navy','red','dodgerblue')
+
+#***** box plot of raw data - Endogenous genes only
+RawCounts_log <- log2(Nano_RawCounts[1:71 , ]+1) # Excluding 7 housekeeping genes and Nanostring spike-ins
+par(mar = c(6.5,6.5,2.3,0), mgp = c(3.7 , 1 , 0))
+boxplot(RawCounts_log, las = 1, cex.axis = 2, ylab = '' , xlab = '', cex.lab = 4,
+        xaxt = 'n', yaxt = 'n', main = 'Unnormalized counts', cex.main = 3.5,
+        outline = FALSE, names = FALSE, frame = FALSE,
+        whisklty = 3, whisklwd = 1.5, staplelty = 1, notch = TRUE, boxlwd = 2,
+        staplelwd = 0 , boxcol = Color_Batches[factor(Nano_SampleInfo$Cartridges)],
+        border = Color_Batches[factor(Nano_SampleInfo$cartridge)] , col='gray87')
+box(lwd = 7, bty = 'l')
+axis(1, cex.axis=1, at = c(1, seq(20,166,20)), cex.axis = 2.5, lwd.ticks = 4, mgp = c(3.5,1.6,0))
+axis(2, at = c(0, seq(3,15,3)), mgp = c(3.5,.9,0), lwd.ticks = 4, las = 1, cex.axis=3)
+mtext(expression(paste('Samples', '(', 'n'[samples], '=', '162', ')')), 1, line = 4.5, cex = 2.5)
+mtext(expression(paste(Log[2],' (raw counts)')), 2, line = 3.5, cex = 2.7)
+
+
+#***** RLE plot - Figure 1 A - Unormalized
+par(mar = c(6.5,6.5,2.3,0))
+boxplot(RawCounts_log - rowMedians(RawCounts_log),
+        main = '', xlab = '', ylab = '', xaxt = 'n', yaxt = 'n', ylim = c(-4.1,4.1),
+        outline = FALSE, names = FALSE, frame = FALSE, whisklty = 3, whisklwd = 1.5, staplelty = 1, notch = TRUE, boxlwd = 2,
+        staplelwd = 0 , boxcol = Color_Batches[factor(Nano_SampleInfo$cartridge)],
+        border = Color_Batches[factor(Nano_SampleInfo$cartridge)], col = 'gray87')
+box(lwd = 7, bty = 'l')
+title('Unnormalized counts', line = -2, cex.main = 3.5)
+Median_RawData <- apply(RawCounts_log - rowMedians(RawCounts_log), 2, median)
+points(c(1:ncol(RawCounts_log)), Median_RawData, col = Color_Batches[factor(Nano_SampleInfo$cartridge)], pch = 19, cex = 1.2)
+axis(2, mgp = c(3.5, .9 ,0), lwd.ticks=6, las=1, cex.axis=3)
+mtext('RLE', 2, line = 3.5, cex = 3.5)
+abline(h = 0, col = 'black', lwd = 5, lty = 2)
+par(lwd = 3)
+legend(160, 4.1, legend = c(1,2,3,'.','.','.', 13,14,15),
+       col = c(Color_Batches[1:3], rep('white', 3), Color_Batches[13:15]),
+       pch = 19, bty = 'n', cex = 1.4)
+text(x = 162, y = 4.2 ,labels  = 'Cartridges', cex = 1.5)
+rm(Median_RawData)
+
+
+#***** Average plot
+### Average of Nanostring positive spike-ins controls
+Mean_NegativeControlProbes <- apply(Nano_RawCounts[58:65, ], 2, mean)
+### Average of Nanostring positive spike-ins controls
+Mean_PositiveControlProbes <- apply(Nano_RawCounts[66:71, ], 2, mean)
+### Average of housekeeping genes
+Mean_HousekeepingGenes <- apply(Nano_RawCounts[51:57, ], 2, mean)
+### Library size
+LibrarySize <- colSums(Nano_RawCounts [ 1:71, ])
+
+#### Average plots -  Supplementary Figure 2
+par(mar = c(6,7,0,0))
+plot(log2(LibrarySize), ylim = c(0,22), bty = 'l', typ = 'n', ylab = '', xlab = '', xaxt = 'n', yaxt = 'n')
+axis(1, cex.axis = 1, at = c(1, seq(20,166,20)), cex.axis = 2, lwd.ticks = 4, mgp = c(3.5,1.4,0))
+axis(2, cex.axis = 1, cex.axis = 2, lwd.ticks = 4, mgp = c(3.5,1,0), las = 1)
+mtext(expression(paste(Log [2], ' (raw counts)')), 2, line = 3.5, cex = 3)
+mtext(expression(paste('Samples', ' (', 'n'[samples], '=', '21', ')')), 1, line = 4.5, cex = 2.5)
+X <- c(0,6,18,30,42,53,65,77,89,101,113,125,137,143,155,167)
+GradiantColors <- paste0('gray', seq(90,20, by = -5))
+for(i in 1:15) rect(X[i],-5, X[i+1], 22, col = GradiantColors[i], lty = 0 )
+points(log2(LibrarySize), col = alpha('darkgoldenrod1', .8), pch = 15, cex = 1.8, lwd = 1.5)
+lines(smooth.spline(c(1:length(LibrarySize)), log2(LibrarySize), df = 5), col = 'darkgoldenrod1', lwd = 4)
+points(log2(Mean_HousekeepingGenes) + 3, cex = 2, col = alpha('red', .6), pch = 19)
+lines(smooth.spline(c(1:length(LibrarySize)), log2(Mean_HousekeepingGenes) + 3, df = 5), col = 'red', lwd = 4)
+points(log2(Mean_PositiveControlProbes) - 1, col = alpha('cyan2', .8), pch = 18, cex = 2.5)
+lines(smooth.spline(c(1:length(LibrarySize)), log2(Mean_PositiveControlProbes) - 1, df = 5), col = 'cyan1', lwd = 4)
+points(log2(Mean_NegativeControlProbes), col = alpha('green2', .6), pch = 17, cex = 1.8)
+lines(smooth.spline(c(1:length(LibrarySize)), log2(Mean_NegativeControlProbes), df = 5), col = 'green2', lwd = 4)
+box(lwd = 5, bty = 'l')
+rm(X, GradiantColors, Mean_NegativeControlProbes,
+   Mean_PositiveControlProbes, Mean_HousekeepingGenes,
+   LibrarySize)
+
+
+#***** Log ratio between all pairs of duplicated samples
+DuplicatedSamples <- tuplicate(Nano_SampleInfo$Patient.barcodes, 2)
+length(DuplicatedSamples) 
+
+LogRatio_TechRep_RawCounts <- vector()
+for(i in 1:1){
+  index <- Nano_SampleInfo$Patient.barcodes == DuplicatedSamples[i]
+  RepData <- RawCounts_log [ , index]
+  LogRatio <- as.data.frame(RepData[ , 1] - RepData[ , 2] )
+  colnames(LogRatio) <- 'LogRatio'
+  LogRatio$Replicates <- rep( i , 71)
+  LogRatio_TechRep_RawCounts <- rbind(LogRatio_TechRep_RawCounts , LogRatio)
+  rm(i, index, RepData, LogRatio)
+}
+nrow(LogRatio_TechRep_RawCounts)/71 # 17
+LogRatio_TechRep_RawCounts$Datasets <- 'Unnormalized'
+
+
+
+
+##################################################################################################################################
+############################################### RUV-III normalization - using technical replicates and control genes #############
+
+#***** Creating replicate matrix
+length(Nano_SampleInfo$Patient.barcodes) # 162
+length(unique(Nano_SampleInfo$Patient.barcodes)) # 135
+
+ReplicateMatrix <- ruv::replicate.matrix(Nano_SampleInfo$Patient.barcodes)
+dim(ReplicateMatrix) # 162 133
+
+### Making sure that every row has got only one number
+par(mfrow = c(2,1))
+barplot(colSums(ReplicateMatrix))
+barplot(rowSums(ReplicateMatrix))
+par(mfrow = c(1,1))
+
+
+#***** Finding control genes
+### Step 1: Using all genes as a set of negative control genes
+# Performing RUVIII
+dataRUV <- t(log2(Nano_RawCounts[1:50, ] + 1))
+RUVcorrected <- ruv::RUVIII(Y = dataRUV, M = ReplicateMatrix, ctl = c(1:50))
+RUVcorrected <- t(RUVcorrected)
+
+### Step 2: Selecting the most stable genes from step 1
+LowVarGenes <- apply(RUVcorrected, 1, var)
+ControlGenes <- which(LowVarGenes < .5)
+length(ControlGenes) # 15 genes
+
+
+### Step3: Performing RUV-III using the ControlGenes set
+RUVcorrected <- RUVIII(Y = dataRUV, M = ReplicateMatrix, ctl = ControlGenes, k = 9) #NEEDED TO CHANGE TO 2
+RUVcorrected <- t(RUVcorrected)
+dim(RUVcorrected)
+# We tried different numbers of k based on our positive controls####
+all(colnames(RUVcorrected) == Nano_SampleInfo$SampleNames) ## TRUE
+
+
+#***** RLE plots - Figure 1 A, RUV-III normalization
+par(mar = c(6.5,6.5,2.3,0))
+boxplot(RUVcorrected - rowMedians(RUVcorrected), main = '', xlab = '', ylab = '', xaxt = 'n', yaxt = 'n', ylim = c(-4.1,4.1),
+        outline = FALSE, names = FALSE, frame = FALSE, whisklty = 3, whisklwd = 1.5, staplelty = 1, notch = TRUE, boxlwd = 2,
+        staplelwd = 0 , boxcol = Color_Batches[factor(Nano_SampleInfo$cartridge)],
+        border = Color_Batches[factor(Nano_SampleInfo$cartridge)], col = 'gray87')
+box(lwd = 7, bty = 'l')
+title('RUV-III normalized', line = -2, cex.main = 3.5)
+Median_RUV <- apply(RUVcorrected - rowMedians(RUVcorrected), 2, median)
+points(c(1:ncol(RUVcorrected)), Median_RUV, col = Color_Batches[factor(Nano_SampleInfo$cartridge)], pch = 19, cex = 1.2)
+axis(1, cex.axis = 1, at = c(1, seq(20,166,20)), cex.axis = 2.5, lwd.ticks = 6,  mgp = c(3.5,1.6,0))
+axis(2, mgp = c(3.5,.9,0), lwd.ticks = 6, las = 1, cex.axis = 3)
+mtext(expression(paste('Samples','(', 'n'[samples], '=', '162', ')')),1 ,line = 5, cex = 3)
+mtext('RLE', 2, line = 3.5, cex = 3.5)
+abline(h = 0, col = 'black', lwd = 5, lty = 2)
+
+
+#***** Correlation between ERCC1 and RRM1 in cancer samples
+RUVIII_CancerData <- RUVcorrected[ , Nano_SampleInfo$Tissues=="cancer"]
+dim(RUVIII_CancerData) ## 587 150
+BioCo_RUV <- cor.test(unlist(t(RUVIII_CancerData['SMAD9' , ])) , unlist(t(RUVIII_CancerData[ 'WARS1' , ])), method = "spearman")[[4]]
+par(mar = c(5,5,2,1))
+plot (RUVIII_CancerData[ "SMAD9", ], RUVIII_CancerData [ "WARS1" , ],
+      las = 1, pch = 21, col = "cyan", bg = 'blue', lwd = 1.2,
+      main = "RUV-III normalized", bty = "l", cex.main = 2, mgp = c(3.2,.8,0),
+      cex.axis = 1.7, cex.lab = 1.5, cex = 2.5, lwd.ticks = 3, ylab = "" ,
+      xlab = expression(paste(italic(RRM1) , " (", log[2] , " normalized counts" , ")")))
+mtext(expression(paste(italic(ERCC1) , " (", log[2] , " normalized counts" , ")")), 2, line = 3, cex = 1.5)
+title(paste('(r = ', round(BioCo_RUV, digits = 2), ')'), line = -.5, cex = 1.4)
+box(lwd = 6, bty = "l")
+
+
+#***** Log DIFFERENCE between technical duplicated - per the paper
+### Assessing the perfromance of RUV-III using 'leave out one duplicate'
+DuplicatedSamples <- tuplicate(Nano_SampleInfo$Patient.barcodes, 2)
+length(DuplicatedSamples) # 17
+LogRatio_TechRep_RUVIII <- vector()
+dataRUV <- t(log2(Nano_RawCounts[1:51, ] +1))
+
+for(l in 1:length(DuplicatedSamples)){
+  index <- Nano_SampleInfo$Patient.barcodes == DuplicatedSamples[l]
+  info <- Nano_SampleInfo
+  info$Patient.barcodes[index] <- c('Rep1', 'Rep2')
+  X <- length(info$Patient.barcodes)
+  Y <- length(unique(info$Patient.barcodes))
+  
+  ReplicateMatrix <- matrix(0, nrow = X, ncol = Y)
+  row.names(ReplicateMatrix) <- info$Patient.barcodes
+  colnames(ReplicateMatrix) <- unique(info$Patient.barcodes)
+  for(i in 1:Y){
+    n <- colnames(ReplicateMatrix)[i]
+    sa <- which(row.names(ReplicateMatrix)==n)
+    for(j in 1:length(sa)){
+      ReplicateMatrix [sa[j] , i] <- 1
+    }
+  }
+  RUVcorrected_Data <- ruv::RUVIII(dataRUV , ReplicateMatrix , ctl = ControlGenes, k = 9)
+  RUVcorrected_Data <- t(RUVcorrected_Data)
+  index <- which(index)
+  LogRatio <- as.data.frame( (RUVcorrected_Data[ , index[1]] ) - (RUVcorrected_Data[ , index[2]]) )
+  colnames(LogRatio) <- 'LogRatio'
+  LogRatio$Replicates <- rep(l , 51)
+  LogRatio_TechRep_RUVIII <- rbind(LogRatio_TechRep_RUVIII , LogRatio)
+  rm(i, index, info, X, Y, LogRatio)
+  
+}
+nrow(LogRatio_TechRep_RUVIII)/51
+LogRatio_TechRep_RUVIII$Datasets <- 'RUV-III normalized'
+
+
+#***** Technical Replicate Agreement plot for unnormalized, Nanostring Normalization and RUV-III (leave out one technical replicate)
+### Figure 1 B
+TRAallNormalizations <- rbind(LogRatio_TechRep_RawCounts, LogRatio_TechRep_RUVIII)
+TRAallNormalizations$Replicates <- as.factor(TRAallNormalizations$Replicates)
+TRAallNormalizations$Datasets <- as.factor(TRAallNormalizations$Datasets)
+TRAallNormalizations$Datasets  <- factor(TRAallNormalizations$Datasets , levels = c('Unnormalized','RUV-III normalized'))
+ggplot(data = TRAallNormalizations) +
+  geom_boxplot(aes(y = LogRatio, x = Replicates, fill = Datasets, color=Datasets), outlier.size = .5,
+               position = position_dodge(width = .7),
+               width = 1, alpha = 0.8, lwd = .7) +
+  ylab('Log ratio')+ylim(c(-10,10)) +
+  scale_color_manual(values = c('lightblue', 'royalblue', 'navy')) +
+  scale_fill_manual(values = c('lightblue', 'royalblue', 'navy')) +
+  theme_classic() +
+  geom_hline(yintercept = 0, lty = 2, lwd = .6, col = 'red')+
+  theme(axis.title = element_text(size = 25),
+        axis.text.x = element_text(size = 20),
+        axis.text.y = element_text(size = 20),
+        axis.line = element_line(size = 1.5),
+        legend.title = element_text(size = 20, face = c('italic', 'bold')),
+        legend.text = element_text(size = 20),
+        legend.position = "top", legend.direction = "horizontal")
+
+
+
+
+############################################FINAL NORMALIZATION with 117 genes###################################################
+length(Nano_SampleInfo$Patient.barcodes) # 162
+length(unique(Nano_SampleInfo$Patient.barcodes)) # 135
+
+ReplicateMatrix <- ruv::replicate.matrix(Nano_SampleInfo$Patient.barcodes)
+dim(ReplicateMatrix) # 162 133
+#***** Finding control genes
+### Step 1: Using all genes as a set of negative control genes
+# Performing RUVIII
+dataRUV <- t(log2(Nano_RawCounts[1:51, ] +1))
+RUVcorrected <- ruv::RUVIII(Y = dataRUV, M = ReplicateMatrix, ctl = c(1:51))
+RUVcorrected <- t(RUVcorrected)
+
+### Step 2: Selecting the most stable genes from step 1
+LowVarGenes <- apply(RUVcorrected, 1, var)
+ControlGenes <- which(LowVarGenes < .5)
+length(ControlGenes) # 15 genes
+
+
+### Step3: Performing RUV-III using the ControlGenes set
+RUVcorrected <- RUVIII(Y = dataRUV, M = ReplicateMatrix, ctl = ControlGenes, k = 9)
+RUVcorrected <- t(RUVcorrected)
+dim(RUVcorrected)
+# We tried different numbers of k based on our positive controls
+all(colnames(RUVcorrected) == Nano_SampleInfo$SampleNames) ## TRUE
+
+tme_ffpe_RUVcorrected= RUVcorrected
+
+```
+###TME RUVIII subtype
+```{r}
+log_nanostring_1 = RUVcorrected
+```
+```{r}
+#Check if quantile normalization is required.
+colramp = colorRampPalette(c(3,"white",2))(20)
+plot(density(log_nanostring_1[,1]),col=colramp[1],lwd=1,ylim=c(0,.30), xlim=c(-20,20))
+for(i in 2:9){lines(density(log_nanostring_1[,i]),lwd=1,col=colramp[i])}
+#In the plot we can see that quantile normalization will aid in the data analysis
+```
+
+```{r}
+housekeeping_genes = c("ACTB", "CTCF", "EIF4G", "HNRNPK", "RPL9", "SUMO3", "XRCC5")
+normalizergenes = c(rntop50,housekeeping_genes)
+```
+
+```{r}
+#Data sets - reduce to commongenes and transpose for FSQN
+cancer_nanostring_1 <- subset(log_nanostring_1, rownames(log_nanostring_1) %in% as.matrix(rntop50))
+cancer_nanostring_1 = t(cancer_nanostring_1)
+```
+
+```{r}
+#FSQN the cancers
+
+#TCGA FSQN to ACRG as reference due to predominate data derived from affymetrix platform and that TME clusters were established ACRG.
+set.seed(99)   
+target = as.matrix(log_ACRG_cancer)
+test = as.matrix(cancer_nanostring_1)
+classify_TME = quantileNormalizeByFeature(test, target)
+
+colramp = colorRampPalette(c(3,"white",2))(20)
+colramp2 = colorRampPalette(c(4,"white",5))(20)
+plot(density(log_nanostring_1[,1]),col=colramp[1],lwd=1,ylim=c(0,.30), xlim=c(-20,20))
+for(i in 2:9){lines(density(log_nanostring_1[,i]),lwd=1,col=colramp[i])
+  for(i in 2:9){lines(density(t(classify_TME)[,i]),lwd=1,col=colramp2[i])}
+}
+```
+```{r}
+#Reduce to final genes
+
+classify_TME <- classify_TME[, rntop50]
+```
+```{r}
+#Classify the cancers according to TCGA 
+
+predict.classify_TME = predict(tme.final,classify_TME)
+predict.classify_TME_prob = predict(tme.final,classify_TME, type = "prob")
+
+table(predict.classify_TME)
+```
+```{r}
+#Extract calibrated probabilities 
+
+predict.classify_TME_cal = predict(tme.final_calibration,predict.classify_TME_prob)
+predict.classify_TME_prob_cal = predict(tme.final_calibration,predict.classify_TME_prob, type = "prob")
+colnames(predict.classify_TME_prob_cal) = c("High_cal", "Low_cal")
+
+TME_cal = as.data.frame(row.names(classify_TME))
+TME_cal$TME_subtype_cal = predict.classify_TME_cal
+colnames(TME_cal)[which(names(TME_cal) == "row.names(classify_TME)")] <- "sample_id"
+
+TME_prob_cal = as.data.frame(row.names(classify_TME))
+TME_prob_cal$High_cal = predict.classify_TME_prob_cal$High_cal
+TME_prob_cal$Low_cal = predict.classify_TME_prob_cal$Low_cal
+colnames(TME_prob_cal)[which(names(TME_prob_cal) == "row.names(classify_TME)")] <- "sample_id"
+
+TME_ffpe = TME_prob_cal
+
+TME_ffpe_names = Nano_SampleInfo
+TME_ffpe_names = dplyr::select(TME_ffpe_names, c("Patient.barcodes","SampleNames"))
+
+TME_ffpe = merge(TME_ffpe, TME_ffpe_names, by.x="sample_id", by.y="SampleNames")
+TME_ffpe = TME_ffpe[,-1]
+colnames(TME_ffpe)[which(names(TME_ffpe) == "Patient.barcodes")] <- "sample_id"
+
+
+
+
+
+TME_ffpe %>% group_by(sample_id) %>% summarise_all(mean) %>% data.frame() -> TME_ffpe
+
+TME_ffpe[,c(2:4)] = TME_ffpe[,c(2:3)] %>% mutate('TME_subtype'=names(.)[apply(., 1, which.max)])
+
+TCGA_ffpe[,c(2:6)] = TCGA_ffpe[,c(2:5)] %>% mutate('TCGA_subtype'=names(.)[apply(., 1, which.max)])
+```
+
+```{r}
+#Combine FFPE TCGA and TME
+ffpe_nanostring = merge(TCGA_ffpe,TME_ffpe, by="sample_id")
+
+ffpe_nanostring$tissue = "ffpe"
+
+```
+
+
+#////////Organoid - gene specific normalization//////////
+#TCGA RUVIII Normalization cancers with tcga only genes
+The optimal normalization normalizes FFPE and organoid separately. The Normals and Cancers are included together. 117 genes are used... the "housekeepers" are excluded. 
+```{r}
+#***** Reading Nanostring gene expression raw data
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/run1-7.txt'
+Nano_ExpressionMatrix <-read.delim(urlfile,stringsAsFactors = FALSE, header = TRUE, as.is = TRUE)
+
+#***** Reading sample and clinical information
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/nanostring_samples_final.txt'
+Nano_SampleInfo <-read.delim(urlfile,stringsAsFactors = FALSE, header = TRUE, as.is = TRUE)
+Nano_SampleInfo = Nano_SampleInfo[c(1:84),]
+
+
+dim(Nano_SampleInfo) # 24 12
+table(Nano_SampleInfo$Tissues)
+
+
+#Exclude poor samples
+exclude = Nano_SampleInfo$exclude=="TRUE" 
+Nano_SampleInfo = Nano_SampleInfo[!(Nano_SampleInfo$exclude=="TRUE"),] 
+Nano_SampleInfo = dplyr::select(Nano_SampleInfo, -"exclusion_reason")
+
+
+Nano_RawCounts = dplyr::filter(Nano_ExpressionMatrix, subtype=="TCGA" | subtype=="Negative" | subtype=="Positive"| subtype=="Housekeeping")
+
+#***** Expression matrix
+Nano_RawCounts <- as.matrix(Nano_RawCounts[ , 5:ncol(Nano_RawCounts)])
+exclude = colnames(Nano_RawCounts[,exclude])
+Nano_RawCounts = Nano_RawCounts[ , !(colnames(Nano_RawCounts) %in% exclude)]
+
+
+
+#Exclude organoids OR FFPE OR Cancer OR normal
+exclude = Nano_SampleInfo$sample_type=="FFPE"
+exclude = colnames(Nano_RawCounts[,exclude])
+Nano_RawCounts = Nano_RawCounts[ , !(colnames(Nano_RawCounts) %in% exclude)]
+Nano_SampleInfo = Nano_SampleInfo[!(Nano_SampleInfo$sample_type=="FFPE"),] 
+
+exclude = Nano_SampleInfo$Tissues=="normal_organoid"
+exclude = colnames(Nano_RawCounts[,exclude])
+Nano_RawCounts = Nano_RawCounts[ , !(colnames(Nano_RawCounts) %in% exclude)]
+Nano_SampleInfo = Nano_SampleInfo[!(Nano_SampleInfo$Tissues=="normal_organoid"),] 
+
+row.names(Nano_RawCounts) <- Nano_ExpressionMatrix[Nano_ExpressionMatrix$subtype=="TCGA" | Nano_ExpressionMatrix$subtype=="Negative" |Nano_ExpressionMatrix$subtype=="Positive" |Nano_ExpressionMatrix$subtype=="Housekeeping" ,]$Probe.Name
+Nano_SampleInfo$SampleNames <- colnames(Nano_RawCounts)
+
+
+##################################################################################################################################
+##################################################################  Exploratory  data analysis – raw counts #####################
+#***** Colors for each cartridges
+Color_Batches <- c('purple','orange','darkred','blue','chartreuse',
+                   'darkgoldenrod4','tan2','darkgreen','red3','darkmagenta',
+                   'deeppink','violet','navy','red','dodgerblue')
+
+#***** box plot of raw data - Endogenous genes only
+RawCounts_log <- log2(Nano_RawCounts[1:78 , ]+1) # Excluding 7 housekeeping genes and Nanostring spike-ins
+par(mar = c(6.5,6.5,2.3,0), mgp = c(3.7 , 1 , 0))
+boxplot(RawCounts_log, las = 1, cex.axis = 2, ylab = '' , xlab = '', cex.lab = 4,
+        xaxt = 'n', yaxt = 'n', main = 'Unnormalized counts', cex.main = 3.5,
+        outline = FALSE, names = FALSE, frame = FALSE,
+        whisklty = 3, whisklwd = 1.5, staplelty = 1, notch = TRUE, boxlwd = 2,
+        staplelwd = 0 , boxcol = Color_Batches[factor(Nano_SampleInfo$Cartridges)],
+        border = Color_Batches[factor(Nano_SampleInfo$cartridge)] , col='gray87')
+box(lwd = 7, bty = 'l')
+axis(1, cex.axis=1, at = c(1, seq(20,166,20)), cex.axis = 2.5, lwd.ticks = 4, mgp = c(3.5,1.6,0))
+axis(2, at = c(0, seq(3,15,3)), mgp = c(3.5,.9,0), lwd.ticks = 4, las = 1, cex.axis=3)
+mtext(expression(paste('Samples', '(', 'n'[samples], '=', '162', ')')), 1, line = 4.5, cex = 2.5)
+mtext(expression(paste(Log[2],' (raw counts)')), 2, line = 3.5, cex = 2.7)
+
+
+#***** RLE plot - Figure 1 A - Unormalized
+par(mar = c(6.5,6.5,2.3,0))
+boxplot(RawCounts_log - rowMedians(RawCounts_log),
+        main = '', xlab = '', ylab = '', xaxt = 'n', yaxt = 'n', ylim = c(-4.1,4.1),
+        outline = FALSE, names = FALSE, frame = FALSE, whisklty = 3, whisklwd = 1.5, staplelty = 1, notch = TRUE, boxlwd = 2,
+        staplelwd = 0 , boxcol = Color_Batches[factor(Nano_SampleInfo$cartridge)],
+        border = Color_Batches[factor(Nano_SampleInfo$cartridge)], col = 'gray87')
+box(lwd = 7, bty = 'l')
+title('Unnormalized counts', line = -2, cex.main = 3.5)
+Median_RawData <- apply(RawCounts_log - rowMedians(RawCounts_log), 2, median)
+points(c(1:ncol(RawCounts_log)), Median_RawData, col = Color_Batches[factor(Nano_SampleInfo$cartridge)], pch = 19, cex = 1.2)
+axis(2, mgp = c(3.5, .9 ,0), lwd.ticks=6, las=1, cex.axis=3)
+mtext('RLE', 2, line = 3.5, cex = 3.5)
+abline(h = 0, col = 'black', lwd = 5, lty = 2)
+par(lwd = 3)
+legend(160, 4.1, legend = c(1,2,3,'.','.','.', 13,14,15),
+       col = c(Color_Batches[1:3], rep('white', 3), Color_Batches[13:15]),
+       pch = 19, bty = 'n', cex = 1.4)
+text(x = 162, y = 4.2 ,labels  = 'Cartridges', cex = 1.5)
+rm(Median_RawData)
+
+
+#***** Average plot
+### Average of Nanostring positive spike-ins controls
+Mean_NegativeControlProbes <- apply(Nano_RawCounts[65:72, ], 2, mean)
+### Average of Nanostring positive spike-ins controls
+Mean_PositiveControlProbes <- apply(Nano_RawCounts[73:78, ], 2, mean)
+### Average of housekeeping genes
+Mean_HousekeepingGenes <- apply(Nano_RawCounts[58:64, ], 2, mean)
+### Library size
+LibrarySize <- colSums(Nano_RawCounts [ 1:78, ])
+
+#### Average plots -  Supplementary Figure 2
+par(mar = c(6,7,0,0))
+plot(log2(LibrarySize), ylim = c(0,22), bty = 'l', typ = 'n', ylab = '', xlab = '', xaxt = 'n', yaxt = 'n')
+axis(1, cex.axis = 1, at = c(1, seq(20,166,20)), cex.axis = 2, lwd.ticks = 4, mgp = c(3.5,1.4,0))
+axis(2, cex.axis = 1, cex.axis = 2, lwd.ticks = 4, mgp = c(3.5,1,0), las = 1)
+mtext(expression(paste(Log [2], ' (raw counts)')), 2, line = 3.5, cex = 3)
+mtext(expression(paste('Samples', ' (', 'n'[samples], '=', '21', ')')), 1, line = 4.5, cex = 2.5)
+X <- c(0,6,18,30,42,53,65,77,89,101,113,125,137,143,155,167)
+GradiantColors <- paste0('gray', seq(90,20, by = -5))
+for(i in 1:15) rect(X[i],-5, X[i+1], 22, col = GradiantColors[i], lty = 0 )
+points(log2(LibrarySize), col = alpha('darkgoldenrod1', .8), pch = 15, cex = 1.8, lwd = 1.5)
+lines(smooth.spline(c(1:length(LibrarySize)), log2(LibrarySize), df = 5), col = 'darkgoldenrod1', lwd = 4)
+points(log2(Mean_HousekeepingGenes) + 3, cex = 2, col = alpha('red', .6), pch = 19)
+lines(smooth.spline(c(1:length(LibrarySize)), log2(Mean_HousekeepingGenes) + 3, df = 5), col = 'red', lwd = 4)
+points(log2(Mean_PositiveControlProbes) - 1, col = alpha('cyan2', .8), pch = 18, cex = 2.5)
+lines(smooth.spline(c(1:length(LibrarySize)), log2(Mean_PositiveControlProbes) - 1, df = 5), col = 'cyan1', lwd = 4)
+points(log2(Mean_NegativeControlProbes), col = alpha('green2', .6), pch = 17, cex = 1.8)
+lines(smooth.spline(c(1:length(LibrarySize)), log2(Mean_NegativeControlProbes), df = 5), col = 'green2', lwd = 4)
+box(lwd = 5, bty = 'l')
+rm(X, GradiantColors, Mean_NegativeControlProbes,
+   Mean_PositiveControlProbes, Mean_HousekeepingGenes,
+   LibrarySize)
+
+
+#***** Log ratio between all pairs of duplicated samples
+DuplicatedSamples <- tuplicate(Nano_SampleInfo$Patient.barcodes, 2)
+length(DuplicatedSamples) 
+
+LogRatio_TechRep_RawCounts <- vector()
+for(i in 1:1){
+  index <- Nano_SampleInfo$Patient.barcodes == DuplicatedSamples[i]
+  RepData <- RawCounts_log [ , index]
+  LogRatio <- as.data.frame(RepData[ , 1] - RepData[ , 2] )
+  colnames(LogRatio) <- 'LogRatio'
+  LogRatio$Replicates <- rep( i , 78)
+  LogRatio_TechRep_RawCounts <- rbind(LogRatio_TechRep_RawCounts , LogRatio)
+  rm(i, index, RepData, LogRatio)
+}
+nrow(LogRatio_TechRep_RawCounts)/78 # 17
+LogRatio_TechRep_RawCounts$Datasets <- 'Unnormalized'
+
+
+
+
+##################################################################################################################################
+############################################### RUV-III normalization - using technical replicates and control genes #############
+
+#***** Creating replicate matrix
+length(Nano_SampleInfo$Patient.barcodes) # 162
+length(unique(Nano_SampleInfo$Patient.barcodes)) # 135
+
+ReplicateMatrix <- ruv::replicate.matrix(Nano_SampleInfo$Patient.barcodes)
+dim(ReplicateMatrix) # 162 133
+
+### Making sure that every row has got only one number
+par(mfrow = c(2,1))
+barplot(colSums(ReplicateMatrix))
+barplot(rowSums(ReplicateMatrix))
+par(mfrow = c(1,1))
+
+
+#***** Finding control genes
+### Step 1: Using all genes as a set of negative control genes
+# Performing RUVIII
+dataRUV <- t(log2(Nano_RawCounts[1:57, ] + 1))
+RUVcorrected <- ruv::RUVIII(Y = dataRUV, M = ReplicateMatrix, ctl = c(1:57))
+RUVcorrected <- t(RUVcorrected)
+
+### Step 2: Selecting the most stable genes from step 1
+LowVarGenes <- apply(RUVcorrected, 1, var)
+ControlGenes <- which(LowVarGenes < .5)
+length(ControlGenes) # 15 genes
+
+
+### Step3: Performing RUV-III using the ControlGenes set
+RUVcorrected <- RUVIII(Y = dataRUV, M = ReplicateMatrix, ctl = ControlGenes, k = 2)
+RUVcorrected <- t(RUVcorrected)
+dim(RUVcorrected)
+# We tried different numbers of k based on our positive controls####
+all(colnames(RUVcorrected) == Nano_SampleInfo$SampleNames) ## TRUE
+
+
+#***** RLE plots - Figure 1 A, RUV-III normalization
+par(mar = c(6.5,6.5,2.3,0))
+boxplot(RUVcorrected - rowMedians(RUVcorrected), main = '', xlab = '', ylab = '', xaxt = 'n', yaxt = 'n', ylim = c(-4.1,4.1),
+        outline = FALSE, names = FALSE, frame = FALSE, whisklty = 3, whisklwd = 1.5, staplelty = 1, notch = TRUE, boxlwd = 2,
+        staplelwd = 0 , boxcol = Color_Batches[factor(Nano_SampleInfo$cartridge)],
+        border = Color_Batches[factor(Nano_SampleInfo$cartridge)], col = 'gray87')
+box(lwd = 7, bty = 'l')
+title('RUV-III normalized', line = -2, cex.main = 3.5)
+Median_RUV <- apply(RUVcorrected - rowMedians(RUVcorrected), 2, median)
+points(c(1:ncol(RUVcorrected)), Median_RUV, col = Color_Batches[factor(Nano_SampleInfo$cartridge)], pch = 19, cex = 1.2)
+axis(1, cex.axis = 1, at = c(1, seq(20,166,20)), cex.axis = 2.5, lwd.ticks = 6,  mgp = c(3.5,1.6,0))
+axis(2, mgp = c(3.5,.9,0), lwd.ticks = 6, las = 1, cex.axis = 3)
+mtext(expression(paste('Samples','(', 'n'[samples], '=', '162', ')')),1 ,line = 5, cex = 3)
+mtext('RLE', 2, line = 3.5, cex = 3.5)
+abline(h = 0, col = 'black', lwd = 5, lty = 2)
+
+
+#***** Correlation between ERCC1 and RRM1 in cancer samples
+RUVIII_CancerData <- RUVcorrected[ , Nano_SampleInfo$Tissues=="cancer_organoid"]
+dim(RUVIII_CancerData) ## 587 150
+BioCo_RUV <- cor.test(unlist(t(RUVIII_CancerData['CDKN2A' , ])) , unlist(t(RUVIII_CancerData[ 'JAK2' , ])), method = "spearman")[[4]]
+par(mar = c(5,5,2,1))
+plot (RUVIII_CancerData[ "CDKN2A", ], RUVIII_CancerData [ "JAK2" , ],
+      las = 1, pch = 21, col = "cyan", bg = 'blue', lwd = 1.2,
+      main = "RUV-III normalized", bty = "l", cex.main = 2, mgp = c(3.2,.8,0),
+      cex.axis = 1.7, cex.lab = 1.5, cex = 2.5, lwd.ticks = 3, ylab = "" ,
+      xlab = expression(paste(italic(RRM1) , " (", log[2] , " normalized counts" , ")")))
+mtext(expression(paste(italic(ERCC1) , " (", log[2] , " normalized counts" , ")")), 2, line = 3, cex = 1.5)
+title(paste('(r = ', round(BioCo_RUV, digits = 2), ')'), line = -.5, cex = 1.4)
+box(lwd = 6, bty = "l")
+
+
+#***** Log DIFFERENCE between technical duplicated - per the paper
+### Assessing the perfromance of RUV-III using 'leave out one duplicate'
+DuplicatedSamples <- tuplicate(Nano_SampleInfo$Patient.barcodes, 2)
+length(DuplicatedSamples) # 17
+LogRatio_TechRep_RUVIII <- vector()
+dataRUV <- t(log2(Nano_RawCounts[1:57, ] +1))
+
+for(l in 1:length(DuplicatedSamples)){
+  index <- Nano_SampleInfo$Patient.barcodes == DuplicatedSamples[l]
+  info <- Nano_SampleInfo
+  info$Patient.barcodes[index] <- c('Rep1', 'Rep2')
+  X <- length(info$Patient.barcodes)
+  Y <- length(unique(info$Patient.barcodes))
+  
+  ReplicateMatrix <- matrix(0, nrow = X, ncol = Y)
+  row.names(ReplicateMatrix) <- info$Patient.barcodes
+  colnames(ReplicateMatrix) <- unique(info$Patient.barcodes)
+  for(i in 1:Y){
+    n <- colnames(ReplicateMatrix)[i]
+    sa <- which(row.names(ReplicateMatrix)==n)
+    for(j in 1:length(sa)){
+      ReplicateMatrix [sa[j] , i] <- 1
+    }
+  }
+  RUVcorrected_Data <- ruv::RUVIII(dataRUV , ReplicateMatrix , ctl = ControlGenes, k = 2)
+  RUVcorrected_Data <- t(RUVcorrected_Data)
+  index <- which(index)
+  LogRatio <- as.data.frame( (RUVcorrected_Data[ , index[1]] ) - (RUVcorrected_Data[ , index[2]]) )
+  colnames(LogRatio) <- 'LogRatio'
+  LogRatio$Replicates <- rep(l , 57)
+  LogRatio_TechRep_RUVIII <- rbind(LogRatio_TechRep_RUVIII , LogRatio)
+  rm(i, index, info, X, Y, LogRatio)
+  
+}
+nrow(LogRatio_TechRep_RUVIII)/57
+LogRatio_TechRep_RUVIII$Datasets <- 'RUV-III normalized'
+
+
+#***** Technical Replicate Agreement plot for unnormalized, Nanostring Normalization and RUV-III (leave out one technical replicate)
+### Figure 1 B
+TRAallNormalizations <- rbind(LogRatio_TechRep_RawCounts, LogRatio_TechRep_RUVIII)
+TRAallNormalizations$Replicates <- as.factor(TRAallNormalizations$Replicates)
+TRAallNormalizations$Datasets <- as.factor(TRAallNormalizations$Datasets)
+TRAallNormalizations$Datasets  <- factor(TRAallNormalizations$Datasets , levels = c('Unnormalized','RUV-III normalized'))
+ggplot(data = TRAallNormalizations) +
+  geom_boxplot(aes(y = LogRatio, x = Replicates, fill = Datasets, color=Datasets), outlier.size = .5,
+               position = position_dodge(width = .7),
+               width = 1, alpha = 0.8, lwd = .7) +
+  ylab('Log ratio')+ylim(c(-10,10)) +
+  scale_color_manual(values = c('lightblue', 'royalblue', 'navy')) +
+  scale_fill_manual(values = c('lightblue', 'royalblue', 'navy')) +
+  theme_classic() +
+  geom_hline(yintercept = 0, lty = 2, lwd = .6, col = 'red')+
+  theme(axis.title = element_text(size = 25),
+        axis.text.x = element_text(size = 20),
+        axis.text.y = element_text(size = 20),
+        axis.line = element_line(size = 1.5),
+        legend.title = element_text(size = 20, face = c('italic', 'bold')),
+        legend.text = element_text(size = 20),
+        legend.position = "top", legend.direction = "horizontal")
+
+
+#***** Log RATIO between technical duplicated - the paper incorrectly called the log difference the ratio 
+### Assessing the perfromance of RUV-III using 'leave out one duplicate'
+DuplicatedSamples <- tuplicate(Nano_SampleInfo$Patient.barcodes, 2)
+length(DuplicatedSamples) # 17
+LogRatio_TechRep_RUVIII <- vector()
+dataRUV <- t(log2(Nano_RawCounts[1:57, ] +1))
+
+for(l in 1:length(DuplicatedSamples)){
+  index <- Nano_SampleInfo$Patient.barcodes == DuplicatedSamples[l]
+  info <- Nano_SampleInfo
+  info$Patient.barcodes[index] <- c('Rep1', 'Rep2')
+  X <- length(info$Patient.barcodes)
+  Y <- length(unique(info$Patient.barcodes))
+  
+  ReplicateMatrix <- matrix(0, nrow = X, ncol = Y)
+  row.names(ReplicateMatrix) <- info$Patient.barcodes
+  colnames(ReplicateMatrix) <- unique(info$Patient.barcodes)
+  for(i in 1:Y){
+    n <- colnames(ReplicateMatrix)[i]
+    sa <- which(row.names(ReplicateMatrix)==n)
+    for(j in 1:length(sa)){
+      ReplicateMatrix [sa[j] , i] <- 1
+    }
+  }
+  RUVcorrected_Data <- ruv::RUVIII(dataRUV , ReplicateMatrix , ctl = ControlGenes, k = 2)
+  RUVcorrected_Data <- t(RUVcorrected_Data)
+  index <- which(index)
+  LogRatio <- as.data.frame( (RUVcorrected_Data[ , index[1]] ) / (RUVcorrected_Data[ , index[2]]))
+  colnames(LogRatio) <- 'LogRatio'
+  LogRatio$Replicates <- rep(l , 57)
+  LogRatio_TechRep_RUVIII <- rbind(LogRatio_TechRep_RUVIII , LogRatio)
+  rm(i, index, info, X, Y, LogRatio)
+  
+}
+nrow(LogRatio_TechRep_RUVIII)/57
+LogRatio_TechRep_RUVIII$Datasets <- 'RUV-III normalized'
+
+
+#***** Technical Replicate Agreement plot for unnormalized, Nanostring Normalization and RUV-III (leave out one technical replicate)
+### Figure 1 B
+TRAallNormalizations <- rbind(LogRatio_TechRep_RawCounts, LogRatio_TechRep_RUVIII)
+TRAallNormalizations$Replicates <- as.factor(TRAallNormalizations$Replicates)
+TRAallNormalizations$Datasets <- as.factor(TRAallNormalizations$Datasets)
+TRAallNormalizations$Datasets  <- factor(TRAallNormalizations$Datasets , levels = c('Unnormalized','RUV-III normalized'))
+ggplot(data = TRAallNormalizations) +
+  geom_boxplot(aes(y = LogRatio, x = Replicates, fill = Datasets, color=Datasets), outlier.size = .5,
+               position = position_dodge(width = .7),
+               width = 1, alpha = 0.8, lwd = .7) +
+  ylab('Log ratio')+ylim(c(-10,10)) +
+  scale_color_manual(values = c('lightblue', 'royalblue', 'navy')) +
+  scale_fill_manual(values = c('lightblue', 'royalblue', 'navy')) +
+  theme_classic() +
+  geom_hline(yintercept = 1, lty = 2, lwd = .6, col = 'red')+
+  theme(axis.title = element_text(size = 25),
+        axis.text.x = element_text(size = 20),
+        axis.text.y = element_text(size = 20),
+        axis.line = element_line(size = 1.5),
+        legend.title = element_text(size = 20, face = c('italic', 'bold')),
+        legend.text = element_text(size = 20),
+        legend.position = "top", legend.direction = "horizontal")
+
+############################################FINAL NORMALIZATION with 117 genes###################################################
+length(Nano_SampleInfo$Patient.barcodes) # 162
+length(unique(Nano_SampleInfo$Patient.barcodes)) # 135
+
+ReplicateMatrix <- ruv::replicate.matrix(Nano_SampleInfo$Patient.barcodes)
+dim(ReplicateMatrix) # 162 133
+#***** Finding control genes
+### Step 1: Using all genes as a set of negative control genes
+# Performing RUVIII
+dataRUV <- t(log2(Nano_RawCounts[1:57, ] +1))
+RUVcorrected_organoid <- ruv::RUVIII(Y = dataRUV, M = ReplicateMatrix, ctl = c(1:57))
+RUVcorrected_organoid <- t(RUVcorrected_organoid)
+
+### Step 2: Selecting the most stable genes from step 1
+LowVarGenes <- apply(RUVcorrected_organoid, 1, var)
+ControlGenes <- which(LowVarGenes < .5)
+length(ControlGenes) # 15 genes
+
+
+### Step3: Performing RUV-III using the ControlGenes set
+RUVcorrected_organoid <- RUVIII(Y = dataRUV, M = ReplicateMatrix, ctl = ControlGenes, k = 2)
+RUVcorrected_organoid <- t(RUVcorrected_organoid)
+dim(RUVcorrected_organoid)
+# We tried different numbers of k based on our positive controls
+all(colnames(RUVcorrected_organoid) == Nano_SampleInfo$SampleNames) ## TRUE
+
+
+```
+###TCGA RUVIII subtype
+```{r}
+log_nanostring_1 = RUVcorrected_organoid
+```
+```{r}
+#Check if quantile normalization is required.
+colramp = colorRampPalette(c(3,"white",2))(20)
+plot(density(log_nanostring_1[,1]),col=colramp[1],lwd=1,ylim=c(0,.30), xlim=c(-20,20))
+for(i in 2:9){lines(density(log_nanostring_1[,i]),lwd=1,col=colramp[i])}
+#In the plot we can see that quantile normalization will aid in the data analysis
+```
+```{r}
+housekeeping_genes = c("ACTB", "CTCF", "EIF4G", "HNRNPK", "RPL9", "SUMO3", "XRCC5")
+normalizergenes = c(TCGAfinalgenes,housekeeping_genes)
+```
+```{r}
+cancer_nanostring_1 <- subset(log_nanostring_1, rownames(log_nanostring_1) %in% as.matrix(TCGAfinalgenes))
+cancer_nanostring_1 = t(cancer_nanostring_1)
+```
+```{r}
+#FSQN the cancers
+
+#TCGA FSQN to TCGA as reference.
+set.seed(99)   
+target = as.matrix(tcganormalizer)
+test = as.matrix(cancer_nanostring_1)
+classify_TCGA = quantileNormalizeByFeature(test, target)
+```
+```{r}
+#Reduce to final genes
+
+classify_TCGA <- classify_TCGA[, TCGAfinalgenes]
+```
+
+```{r}
+#Classify the cancers according to TCGA 
+
+predict.classify_TCGA = predict(TCGA.finalmodel,classify_TCGA)
+predict.classify_TCGA_prob = predict(TCGA.finalmodel,classify_TCGA, type = "prob")
+TCGA_ffpe = predict.classify_TCGA_prob 
+
+table(predict.classify_TCGA)
+
+TCGA_ffpe = tibble::rownames_to_column(TCGA_ffpe, "sample_id")
+
+TCGA_ffpe_names = Nano_SampleInfo
+TCGA_ffpe_names = dplyr::select(TCGA_ffpe_names, c("Patient.barcodes","SampleNames"))
+
+TCGA_ffpe = merge(TCGA_ffpe, TCGA_ffpe_names, by.x="sample_id", by.y="SampleNames")
+TCGA_ffpe = TCGA_ffpe[,-1]
+colnames(TCGA_ffpe)[which(names(TCGA_ffpe) == "Patient.barcodes")] <- "sample_id"
+
+
+
+TCGA_ffpe %>% group_by(sample_id) %>% summarise_all(mean) %>% data.frame() -> TCGA_ffpe
+
+TCGA_ffpe[,c(2:6)] = TCGA_ffpe[,c(2:5)] %>% mutate('TCGA_subtype'=names(.)[apply(., 1, which.max)])
+```
+
+#TME RUVIII Normalization cancers with tcga only genes
+
+```{r}
+#***** Reading Nanostring gene expression raw data
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/run1-7.txt'
+Nano_ExpressionMatrix <-read.delim(urlfile,stringsAsFactors = FALSE, header = TRUE, as.is = TRUE)
+
+#***** Reading sample and clinical information
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/nanostring_samples_final.txt'
+Nano_SampleInfo <-read.delim(urlfile,stringsAsFactors = FALSE, header = TRUE, as.is = TRUE)
+Nano_SampleInfo = Nano_SampleInfo[c(1:84),]
+
+dim(Nano_SampleInfo) # 24 12
+table(Nano_SampleInfo$Tissues)
+
+
+#Exclude poor samples
+exclude = Nano_SampleInfo$exclude=="TRUE" 
+Nano_SampleInfo = Nano_SampleInfo[!(Nano_SampleInfo$exclude=="TRUE"),] 
+Nano_SampleInfo = dplyr::select(Nano_SampleInfo, -"exclusion_reason")
+
+
+Nano_RawCounts = dplyr::filter(Nano_ExpressionMatrix, subtype=="TME" | subtype=="Negative" | subtype=="Positive"| subtype=="Housekeeping")
+
+#***** Expression matrix
+Nano_RawCounts <- as.matrix(Nano_RawCounts[ , 5:ncol(Nano_RawCounts)])
+exclude = colnames(Nano_RawCounts[,exclude])
+Nano_RawCounts = Nano_RawCounts[ , !(colnames(Nano_RawCounts) %in% exclude)]
+
+
+
+#Exclude organoids OR FFPE OR Cancer OR normal
+exclude = Nano_SampleInfo$sample_type=="FFPE"
+exclude = colnames(Nano_RawCounts[,exclude])
+Nano_RawCounts = Nano_RawCounts[ , !(colnames(Nano_RawCounts) %in% exclude)]
+Nano_SampleInfo = Nano_SampleInfo[!(Nano_SampleInfo$sample_type=="FFPE"),] 
+
+exclude = Nano_SampleInfo$Tissues=="normal_organoid"
+exclude = colnames(Nano_RawCounts[,exclude])
+Nano_RawCounts = Nano_RawCounts[ , !(colnames(Nano_RawCounts) %in% exclude)]
+Nano_SampleInfo = Nano_SampleInfo[!(Nano_SampleInfo$Tissues=="normal_organoid"),] 
+
+row.names(Nano_RawCounts) <- Nano_ExpressionMatrix[Nano_ExpressionMatrix$subtype=="TME" | Nano_ExpressionMatrix$subtype=="Negative" |Nano_ExpressionMatrix$subtype=="Positive" |Nano_ExpressionMatrix$subtype=="Housekeeping" ,]$Probe.Name
+Nano_SampleInfo$SampleNames <- colnames(Nano_RawCounts)
+
+
+##################################################################################################################################
+##################################################################  Exploratory  data analysis – raw counts #####################
+#***** Colors for each cartridges
+Color_Batches <- c('purple','orange','darkred','blue','chartreuse',
+                   'darkgoldenrod4','tan2','darkgreen','red3','darkmagenta',
+                   'deeppink','violet','navy','red','dodgerblue')
+
+#***** box plot of raw data - Endogenous genes only
+RawCounts_log <- log2(Nano_RawCounts[1:71 , ]+1) # Excluding 7 housekeeping genes and Nanostring spike-ins
+par(mar = c(6.5,6.5,2.3,0), mgp = c(3.7 , 1 , 0))
+boxplot(RawCounts_log, las = 1, cex.axis = 2, ylab = '' , xlab = '', cex.lab = 4,
+        xaxt = 'n', yaxt = 'n', main = 'Unnormalized counts', cex.main = 3.5,
+        outline = FALSE, names = FALSE, frame = FALSE,
+        whisklty = 3, whisklwd = 1.5, staplelty = 1, notch = TRUE, boxlwd = 2,
+        staplelwd = 0 , boxcol = Color_Batches[factor(Nano_SampleInfo$Cartridges)],
+        border = Color_Batches[factor(Nano_SampleInfo$cartridge)] , col='gray87')
+box(lwd = 7, bty = 'l')
+axis(1, cex.axis=1, at = c(1, seq(20,166,20)), cex.axis = 2.5, lwd.ticks = 4, mgp = c(3.5,1.6,0))
+axis(2, at = c(0, seq(3,15,3)), mgp = c(3.5,.9,0), lwd.ticks = 4, las = 1, cex.axis=3)
+mtext(expression(paste('Samples', '(', 'n'[samples], '=', '162', ')')), 1, line = 4.5, cex = 2.5)
+mtext(expression(paste(Log[2],' (raw counts)')), 2, line = 3.5, cex = 2.7)
+
+
+#***** RLE plot - Figure 1 A - Unormalized
+par(mar = c(6.5,6.5,2.3,0))
+boxplot(RawCounts_log - rowMedians(RawCounts_log),
+        main = '', xlab = '', ylab = '', xaxt = 'n', yaxt = 'n', ylim = c(-4.1,4.1),
+        outline = FALSE, names = FALSE, frame = FALSE, whisklty = 3, whisklwd = 1.5, staplelty = 1, notch = TRUE, boxlwd = 2,
+        staplelwd = 0 , boxcol = Color_Batches[factor(Nano_SampleInfo$cartridge)],
+        border = Color_Batches[factor(Nano_SampleInfo$cartridge)], col = 'gray87')
+box(lwd = 7, bty = 'l')
+title('Unnormalized counts', line = -2, cex.main = 3.5)
+Median_RawData <- apply(RawCounts_log - rowMedians(RawCounts_log), 2, median)
+points(c(1:ncol(RawCounts_log)), Median_RawData, col = Color_Batches[factor(Nano_SampleInfo$cartridge)], pch = 19, cex = 1.2)
+axis(2, mgp = c(3.5, .9 ,0), lwd.ticks=6, las=1, cex.axis=3)
+mtext('RLE', 2, line = 3.5, cex = 3.5)
+abline(h = 0, col = 'black', lwd = 5, lty = 2)
+par(lwd = 3)
+legend(160, 4.1, legend = c(1,2,3,'.','.','.', 13,14,15),
+       col = c(Color_Batches[1:3], rep('white', 3), Color_Batches[13:15]),
+       pch = 19, bty = 'n', cex = 1.4)
+text(x = 162, y = 4.2 ,labels  = 'Cartridges', cex = 1.5)
+rm(Median_RawData)
+
+
+#***** Average plot
+### Average of Nanostring positive spike-ins controls
+Mean_NegativeControlProbes <- apply(Nano_RawCounts[58:65, ], 2, mean)
+### Average of Nanostring positive spike-ins controls
+Mean_PositiveControlProbes <- apply(Nano_RawCounts[66:71, ], 2, mean)
+### Average of housekeeping genes
+Mean_HousekeepingGenes <- apply(Nano_RawCounts[51:57, ], 2, mean)
+### Library size
+LibrarySize <- colSums(Nano_RawCounts [ 1:71, ])
+
+#### Average plots -  Supplementary Figure 2
+par(mar = c(6,7,0,0))
+plot(log2(LibrarySize), ylim = c(0,22), bty = 'l', typ = 'n', ylab = '', xlab = '', xaxt = 'n', yaxt = 'n')
+axis(1, cex.axis = 1, at = c(1, seq(20,166,20)), cex.axis = 2, lwd.ticks = 4, mgp = c(3.5,1.4,0))
+axis(2, cex.axis = 1, cex.axis = 2, lwd.ticks = 4, mgp = c(3.5,1,0), las = 1)
+mtext(expression(paste(Log [2], ' (raw counts)')), 2, line = 3.5, cex = 3)
+mtext(expression(paste('Samples', ' (', 'n'[samples], '=', '21', ')')), 1, line = 4.5, cex = 2.5)
+X <- c(0,6,18,30,42,53,65,77,89,101,113,125,137,143,155,167)
+GradiantColors <- paste0('gray', seq(90,20, by = -5))
+for(i in 1:15) rect(X[i],-5, X[i+1], 22, col = GradiantColors[i], lty = 0 )
+points(log2(LibrarySize), col = alpha('darkgoldenrod1', .8), pch = 15, cex = 1.8, lwd = 1.5)
+lines(smooth.spline(c(1:length(LibrarySize)), log2(LibrarySize), df = 5), col = 'darkgoldenrod1', lwd = 4)
+points(log2(Mean_HousekeepingGenes) + 3, cex = 2, col = alpha('red', .6), pch = 19)
+lines(smooth.spline(c(1:length(LibrarySize)), log2(Mean_HousekeepingGenes) + 3, df = 5), col = 'red', lwd = 4)
+points(log2(Mean_PositiveControlProbes) - 1, col = alpha('cyan2', .8), pch = 18, cex = 2.5)
+lines(smooth.spline(c(1:length(LibrarySize)), log2(Mean_PositiveControlProbes) - 1, df = 5), col = 'cyan1', lwd = 4)
+points(log2(Mean_NegativeControlProbes), col = alpha('green2', .6), pch = 17, cex = 1.8)
+lines(smooth.spline(c(1:length(LibrarySize)), log2(Mean_NegativeControlProbes), df = 5), col = 'green2', lwd = 4)
+box(lwd = 5, bty = 'l')
+rm(X, GradiantColors, Mean_NegativeControlProbes,
+   Mean_PositiveControlProbes, Mean_HousekeepingGenes,
+   LibrarySize)
+
+
+#***** Log ratio between all pairs of duplicated samples
+DuplicatedSamples <- tuplicate(Nano_SampleInfo$Patient.barcodes, 2)
+length(DuplicatedSamples) 
+
+LogRatio_TechRep_RawCounts <- vector()
+for(i in 1:1){
+  index <- Nano_SampleInfo$Patient.barcodes == DuplicatedSamples[i]
+  RepData <- RawCounts_log [ , index]
+  LogRatio <- as.data.frame(RepData[ , 1] - RepData[ , 2] )
+  colnames(LogRatio) <- 'LogRatio'
+  LogRatio$Replicates <- rep( i , 71)
+  LogRatio_TechRep_RawCounts <- rbind(LogRatio_TechRep_RawCounts , LogRatio)
+  rm(i, index, RepData, LogRatio)
+}
+nrow(LogRatio_TechRep_RawCounts)/71 # 17
+LogRatio_TechRep_RawCounts$Datasets <- 'Unnormalized'
+
+
+
+
+##################################################################################################################################
+############################################### RUV-III normalization - using technical replicates and control genes #############
+
+#***** Creating replicate matrix
+length(Nano_SampleInfo$Patient.barcodes) # 162
+length(unique(Nano_SampleInfo$Patient.barcodes)) # 135
+
+ReplicateMatrix <- ruv::replicate.matrix(Nano_SampleInfo$Patient.barcodes)
+dim(ReplicateMatrix) # 162 133
+
+### Making sure that every row has got only one number
+par(mfrow = c(2,1))
+barplot(colSums(ReplicateMatrix))
+barplot(rowSums(ReplicateMatrix))
+par(mfrow = c(1,1))
+
+
+#***** Finding control genes
+### Step 1: Using all genes as a set of negative control genes
+# Performing RUVIII
+dataRUV <- t(log2(Nano_RawCounts[1:50, ] + 1))
+RUVcorrected <- ruv::RUVIII(Y = dataRUV, M = ReplicateMatrix, ctl = c(1:50))
+RUVcorrected <- t(RUVcorrected)
+
+### Step 2: Selecting the most stable genes from step 1
+LowVarGenes <- apply(RUVcorrected, 1, var)
+ControlGenes <- which(LowVarGenes < .5)
+length(ControlGenes) # 15 genes
+
+
+### Step3: Performing RUV-III using the ControlGenes set
+RUVcorrected <- RUVIII(Y = dataRUV, M = ReplicateMatrix, ctl = ControlGenes, k = 2)
+RUVcorrected <- t(RUVcorrected)
+dim(RUVcorrected)
+# We tried different numbers of k based on our positive controls####
+all(colnames(RUVcorrected) == Nano_SampleInfo$SampleNames) ## TRUE
+
+
+#***** RLE plots - Figure 1 A, RUV-III normalization
+par(mar = c(6.5,6.5,2.3,0))
+boxplot(RUVcorrected - rowMedians(RUVcorrected), main = '', xlab = '', ylab = '', xaxt = 'n', yaxt = 'n', ylim = c(-4.1,4.1),
+        outline = FALSE, names = FALSE, frame = FALSE, whisklty = 3, whisklwd = 1.5, staplelty = 1, notch = TRUE, boxlwd = 2,
+        staplelwd = 0 , boxcol = Color_Batches[factor(Nano_SampleInfo$cartridge)],
+        border = Color_Batches[factor(Nano_SampleInfo$cartridge)], col = 'gray87')
+box(lwd = 7, bty = 'l')
+title('RUV-III normalized', line = -2, cex.main = 3.5)
+Median_RUV <- apply(RUVcorrected - rowMedians(RUVcorrected), 2, median)
+points(c(1:ncol(RUVcorrected)), Median_RUV, col = Color_Batches[factor(Nano_SampleInfo$cartridge)], pch = 19, cex = 1.2)
+axis(1, cex.axis = 1, at = c(1, seq(20,166,20)), cex.axis = 2.5, lwd.ticks = 6,  mgp = c(3.5,1.6,0))
+axis(2, mgp = c(3.5,.9,0), lwd.ticks = 6, las = 1, cex.axis = 3)
+mtext(expression(paste('Samples','(', 'n'[samples], '=', '162', ')')),1 ,line = 5, cex = 3)
+mtext('RLE', 2, line = 3.5, cex = 3.5)
+abline(h = 0, col = 'black', lwd = 5, lty = 2)
+
+
+#***** Correlation between ERCC1 and RRM1 in cancer samples
+RUVIII_CancerData <- RUVcorrected[ , Nano_SampleInfo$Tissues=="cancer_organoid"]
+dim(RUVIII_CancerData) ## 587 150
+BioCo_RUV <- cor.test(unlist(t(RUVIII_CancerData['SMAD9' , ])) , unlist(t(RUVIII_CancerData[ 'WARS1' , ])), method = "spearman")[[4]]
+par(mar = c(5,5,2,1))
+plot (RUVIII_CancerData[ "SMAD9", ], RUVIII_CancerData [ "WARS1" , ],
+      las = 1, pch = 21, col = "cyan", bg = 'blue', lwd = 1.2,
+      main = "RUV-III normalized", bty = "l", cex.main = 2, mgp = c(3.2,.8,0),
+      cex.axis = 1.7, cex.lab = 1.5, cex = 2.5, lwd.ticks = 3, ylab = "" ,
+      xlab = expression(paste(italic(RRM1) , " (", log[2] , " normalized counts" , ")")))
+mtext(expression(paste(italic(ERCC1) , " (", log[2] , " normalized counts" , ")")), 2, line = 3, cex = 1.5)
+title(paste('(r = ', round(BioCo_RUV, digits = 2), ')'), line = -.5, cex = 1.4)
+box(lwd = 6, bty = "l")
+
+
+#***** Log DIFFERENCE between technical duplicated - per the paper
+### Assessing the perfromance of RUV-III using 'leave out one duplicate'
+DuplicatedSamples <- tuplicate(Nano_SampleInfo$Patient.barcodes, 2)
+length(DuplicatedSamples) # 17
+LogRatio_TechRep_RUVIII <- vector()
+dataRUV <- t(log2(Nano_RawCounts[1:51, ] +1))
+
+for(l in 1:length(DuplicatedSamples)){
+  index <- Nano_SampleInfo$Patient.barcodes == DuplicatedSamples[l]
+  info <- Nano_SampleInfo
+  info$Patient.barcodes[index] <- c('Rep1', 'Rep2')
+  X <- length(info$Patient.barcodes)
+  Y <- length(unique(info$Patient.barcodes))
+  
+  ReplicateMatrix <- matrix(0, nrow = X, ncol = Y)
+  row.names(ReplicateMatrix) <- info$Patient.barcodes
+  colnames(ReplicateMatrix) <- unique(info$Patient.barcodes)
+  for(i in 1:Y){
+    n <- colnames(ReplicateMatrix)[i]
+    sa <- which(row.names(ReplicateMatrix)==n)
+    for(j in 1:length(sa)){
+      ReplicateMatrix [sa[j] , i] <- 1
+    }
+  }
+  RUVcorrected_Data <- ruv::RUVIII(dataRUV , ReplicateMatrix , ctl = ControlGenes, k = 2)
+  RUVcorrected_Data <- t(RUVcorrected_Data)
+  index <- which(index)
+  LogRatio <- as.data.frame( (RUVcorrected_Data[ , index[1]] ) - (RUVcorrected_Data[ , index[2]]) )
+  colnames(LogRatio) <- 'LogRatio'
+  LogRatio$Replicates <- rep(l , 51)
+  LogRatio_TechRep_RUVIII <- rbind(LogRatio_TechRep_RUVIII , LogRatio)
+  rm(i, index, info, X, Y, LogRatio)
+  
+}
+nrow(LogRatio_TechRep_RUVIII)/51
+LogRatio_TechRep_RUVIII$Datasets <- 'RUV-III normalized'
+
+
+#***** Technical Replicate Agreement plot for unnormalized, Nanostring Normalization and RUV-III (leave out one technical replicate)
+### Figure 1 B
+TRAallNormalizations <- rbind(LogRatio_TechRep_RawCounts, LogRatio_TechRep_RUVIII)
+TRAallNormalizations$Replicates <- as.factor(TRAallNormalizations$Replicates)
+TRAallNormalizations$Datasets <- as.factor(TRAallNormalizations$Datasets)
+TRAallNormalizations$Datasets  <- factor(TRAallNormalizations$Datasets , levels = c('Unnormalized','RUV-III normalized'))
+ggplot(data = TRAallNormalizations) +
+  geom_boxplot(aes(y = LogRatio, x = Replicates, fill = Datasets, color=Datasets), outlier.size = .5,
+               position = position_dodge(width = .7),
+               width = 1, alpha = 0.8, lwd = .7) +
+  ylab('Log ratio')+ylim(c(-10,10)) +
+  scale_color_manual(values = c('lightblue', 'royalblue', 'navy')) +
+  scale_fill_manual(values = c('lightblue', 'royalblue', 'navy')) +
+  theme_classic() +
+  geom_hline(yintercept = 0, lty = 2, lwd = .6, col = 'red')+
+  theme(axis.title = element_text(size = 25),
+        axis.text.x = element_text(size = 20),
+        axis.text.y = element_text(size = 20),
+        axis.line = element_line(size = 1.5),
+        legend.title = element_text(size = 20, face = c('italic', 'bold')),
+        legend.text = element_text(size = 20),
+        legend.position = "top", legend.direction = "horizontal")
+
+
+#***** Log RATIO between technical duplicated - the paper incorrectly called the log difference the ratio 
+### Assessing the perfromance of RUV-III using 'leave out one duplicate'
+DuplicatedSamples <- tuplicate(Nano_SampleInfo$Patient.barcodes, 2)
+length(DuplicatedSamples) # 17
+LogRatio_TechRep_RUVIII <- vector()
+dataRUV <- t(log2(Nano_RawCounts[1:51, ] +1))
+
+for(l in 1:length(DuplicatedSamples)){
+  index <- Nano_SampleInfo$Patient.barcodes == DuplicatedSamples[l]
+  info <- Nano_SampleInfo
+  info$Patient.barcodes[index] <- c('Rep1', 'Rep2')
+  X <- length(info$Patient.barcodes)
+  Y <- length(unique(info$Patient.barcodes))
+  
+  ReplicateMatrix <- matrix(0, nrow = X, ncol = Y)
+  row.names(ReplicateMatrix) <- info$Patient.barcodes
+  colnames(ReplicateMatrix) <- unique(info$Patient.barcodes)
+  for(i in 1:Y){
+    n <- colnames(ReplicateMatrix)[i]
+    sa <- which(row.names(ReplicateMatrix)==n)
+    for(j in 1:length(sa)){
+      ReplicateMatrix [sa[j] , i] <- 1
+    }
+  }
+  RUVcorrected_Data <- ruv::RUVIII(dataRUV , ReplicateMatrix , ctl = ControlGenes, k = 2)
+  RUVcorrected_Data <- t(RUVcorrected_Data)
+  index <- which(index)
+  LogRatio <- as.data.frame( (RUVcorrected_Data[ , index[1]] ) / (RUVcorrected_Data[ , index[2]]))
+  colnames(LogRatio) <- 'LogRatio'
+  LogRatio$Replicates <- rep(l , 51)
+  LogRatio_TechRep_RUVIII <- rbind(LogRatio_TechRep_RUVIII , LogRatio)
+  rm(i, index, info, X, Y, LogRatio)
+  
+}
+nrow(LogRatio_TechRep_RUVIII)/51
+LogRatio_TechRep_RUVIII$Datasets <- 'RUV-III normalized'
+
+
+#***** Technical Replicate Agreement plot for unnormalized, Nanostring Normalization and RUV-III (leave out one technical replicate)
+### Figure 1 B
+TRAallNormalizations <- rbind(LogRatio_TechRep_RawCounts, LogRatio_TechRep_RUVIII)
+TRAallNormalizations$Replicates <- as.factor(TRAallNormalizations$Replicates)
+TRAallNormalizations$Datasets <- as.factor(TRAallNormalizations$Datasets)
+TRAallNormalizations$Datasets  <- factor(TRAallNormalizations$Datasets , levels = c('Unnormalized','RUV-III normalized'))
+ggplot(data = TRAallNormalizations) +
+  geom_boxplot(aes(y = LogRatio, x = Replicates, fill = Datasets, color=Datasets), outlier.size = .5,
+               position = position_dodge(width = .7),
+               width = 1, alpha = 0.8, lwd = .7) +
+  ylab('Log ratio')+ylim(c(-10,10)) +
+  scale_color_manual(values = c('lightblue', 'royalblue', 'navy')) +
+  scale_fill_manual(values = c('lightblue', 'royalblue', 'navy')) +
+  theme_classic() +
+  geom_hline(yintercept = 1, lty = 2, lwd = .6, col = 'red')+
+  theme(axis.title = element_text(size = 25),
+        axis.text.x = element_text(size = 20),
+        axis.text.y = element_text(size = 20),
+        axis.line = element_line(size = 1.5),
+        legend.title = element_text(size = 20, face = c('italic', 'bold')),
+        legend.text = element_text(size = 20),
+        legend.position = "top", legend.direction = "horizontal")
+
+############################################FINAL NORMALIZATION with 117 genes###################################################
+length(Nano_SampleInfo$Patient.barcodes) # 162
+length(unique(Nano_SampleInfo$Patient.barcodes)) # 135
+
+ReplicateMatrix <- ruv::replicate.matrix(Nano_SampleInfo$Patient.barcodes)
+dim(ReplicateMatrix) # 162 133
+#***** Finding control genes
+### Step 1: Using all genes as a set of negative control genes
+# Performing RUVIII
+dataRUV <- t(log2(Nano_RawCounts[1:51, ] +1))
+RUVcorrected_organoid <- ruv::RUVIII(Y = dataRUV, M = ReplicateMatrix, ctl = c(1:51))
+RUVcorrected_organoid <- t(RUVcorrected_organoid)
+
+### Step 2: Selecting the most stable genes from step 1
+LowVarGenes <- apply(RUVcorrected_organoid, 1, var)
+ControlGenes <- which(LowVarGenes < .5)
+length(ControlGenes) # 15 genes
+
+
+### Step3: Performing RUV-III using the ControlGenes set
+RUVcorrected_organoid <- RUVIII(Y = dataRUV, M = ReplicateMatrix, ctl = ControlGenes, k = 2)
+RUVcorrected_organoid <- t(RUVcorrected_organoid)
+dim(RUVcorrected_organoid)
+# We tried different numbers of k based on our positive controls
+all(colnames(RUVcorrected_organoid) == Nano_SampleInfo$SampleNames) ## TRUE
+
+
+```
+###TME RUVIII subtype
+```{r}
+log_nanostring_1 = RUVcorrected_organoid
+```
+```{r}
+#Check if quantile normalization is required.
+colramp = colorRampPalette(c(3,"white",2))(20)
+plot(density(log_nanostring_1[,1]),col=colramp[1],lwd=1,ylim=c(0,.30), xlim=c(-20,20))
+for(i in 2:9){lines(density(log_nanostring_1[,i]),lwd=1,col=colramp[i])}
+#In the plot we can see that quantile normalization will aid in the data analysis
+```
+
+```{r}
+housekeeping_genes = c("ACTB", "CTCF", "EIF4G", "HNRNPK", "RPL9", "SUMO3", "XRCC5")
+normalizergenes = c(rntop50,housekeeping_genes)
+```
+
+```{r}
+#Data sets - reduce to commongenes and transpose for FSQN
+cancer_nanostring_1 <- subset(log_nanostring_1, rownames(log_nanostring_1) %in% as.matrix(rntop50))
+cancer_nanostring_1 = t(cancer_nanostring_1)
+```
+
+```{r}
+#FSQN the cancers
+
+#TCGA FSQN to ACRG as reference due to predominate data derived from affymetrix platform and that TME clusters were established ACRG.
+set.seed(99)   
+target = as.matrix(log_ACRG_cancer)
+test = as.matrix(cancer_nanostring_1)
+classify_TME = quantileNormalizeByFeature(test, target)
+```
+
+```{r}
+#Reduce to final genes
+
+classify_TME <- classify_TME[, rntop50]
+```
+```{r}
+#Classify the cancers according to TCGA 
+
+predict.classify_TME = predict(tme.final,classify_TME)
+predict.classify_TME_prob = predict(tme.final,classify_TME, type = "prob")
+
+table(predict.classify_TME)
+```
+```{r}
+#Extract calibrated probabilities 
+
+predict.classify_TME_cal = predict(tme.final_calibration,predict.classify_TME_prob)
+predict.classify_TME_prob_cal = predict(tme.final_calibration,predict.classify_TME_prob, type = "prob")
+colnames(predict.classify_TME_prob_cal) = c("High_cal", "Low_cal")
+
+TME_cal = as.data.frame(row.names(classify_TME))
+TME_cal$TME_subtype_cal = predict.classify_TME_cal
+colnames(TME_cal)[which(names(TME_cal) == "row.names(classify_TME)")] <- "sample_id"
+
+TME_prob_cal = as.data.frame(row.names(classify_TME))
+TME_prob_cal$High_cal = predict.classify_TME_prob_cal$High_cal
+TME_prob_cal$Low_cal = predict.classify_TME_prob_cal$Low_cal
+colnames(TME_prob_cal)[which(names(TME_prob_cal) == "row.names(classify_TME)")] <- "sample_id"
+TME_ffpe = TME_prob_cal
+
+TME_ffpe_names = Nano_SampleInfo
+TME_ffpe_names = dplyr::select(TME_ffpe_names, c("Patient.barcodes","SampleNames"))
+
+TME_ffpe = merge(TME_ffpe, TME_ffpe_names, by.x="sample_id", by.y="SampleNames")
+TME_ffpe = TME_ffpe[,-1]
+colnames(TME_ffpe)[which(names(TME_ffpe) == "Patient.barcodes")] <- "sample_id"
+
+
+TME_ffpe %>% group_by(sample_id) %>% summarise_all(mean) %>% data.frame() -> TME_ffpe
+
+TME_ffpe[,c(2:4)] = TME_ffpe[,c(2:3)] %>% mutate('TME_subtype'=names(.)[apply(., 1, which.max)])
+
+
+```
+
+```{r}
+#Combine FFPE TCGA and TME
+
+organoid_nanostring = merge(TCGA_ffpe,TME_ffpe, by="sample_id")
+
+organoid_nanostring$tissue = "organoid"
+
+gene_specific_nanostring = rbind(organoid_nanostring,ffpe_nanostring)
+```
+
+
+#Combo organoid and ffpe
+```{r}
+
+combo_nanostring = gene_specific_nanostring
+
+write.csv(combo_nanostring, "combo_nanostring_no67.csv")
+
+combo_nanostring$cancer <- ifelse(grepl("C", combo_nanostring$sample_id, ignore.case = T), "Cancer", "Normal")
+combo_nanostring_cancer = combo_nanostring[combo_nanostring$cancer=="Cancer",]
+
+combo_nanostring_cancer$patient_id <- substr(combo_nanostring_cancer$sample_id, start = 1, stop = 2)
+
+
+
+paired_combo_nanostring_cancer = 
+  group_by(combo_nanostring_cancer, patient_id) %>%
+  filter(n() != 1) %>%
+  arrange(tissue, patient_id) %>%
+  ungroup()
+
+wilcox.test(STAD_CIN ~ as.factor(tissue), data = paired_combo_nanostring_cancer, paired = TRUE)
+wilcox.test(STAD_EBV ~ as.factor(tissue), data = paired_combo_nanostring_cancer, paired = TRUE)
+wilcox.test(STAD_MSI ~ as.factor(tissue), data = paired_combo_nanostring_cancer, paired = TRUE)
+wilcox.test(STAD_GS ~ as.factor(tissue), data = paired_combo_nanostring_cancer, paired = TRUE)
+wilcox.test(High_cal ~ as.factor(tissue), data = paired_combo_nanostring_cancer, paired = TRUE)
+
+paired_combo_nanostring_cancer = as.data.frame(paired_combo_nanostring_cancer)
+paired_combo_nanostring_cancer$tissue = as.factor(paired_combo_nanostring_cancer$tissue)
+paired_combo_nanostring_cancer$patient_id = as.factor(paired_combo_nanostring_cancer$patient_id)
+ paired_combo_nanostring_cancer = paired_combo_nanostring_cancer[-20,]
+```
+
+#Paired boxplots
+```{r}
+library(ggpubr)
+cin_organoid_parent = ggpaired(paired_combo_nanostring_cancer, x = "tissue", y = "STAD_CIN",
+ color = "black", line.color = "patient_id", line.size = 1, fill="gray80") + 
+  ylim(0,1) + 
+  ylab("Probability CIN") +
+  scale_x_discrete(name = "Gastric Cancer Sample", label = c("Parent Tissue", "Organoid")) +
+  stat_compare_means(paired = TRUE, size=6,label.x=0.8, label.y=0.98) +
+  geom_point(inherit.aes = FALSE, aes(x = tissue, y = STAD_CIN, fill= patient_id), shape=21,colour="black", size=4) +
+   theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 18)) +
+  theme(axis.text.y = element_text(colour="black",size = 16)) + 
+  theme(plot.title = element_text(colour="black", size=18,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_text(colour="black", size =18, vjust = 0.05)) +
+  theme(axis.title.y = element_text(colour="black", size=18)) +
+  theme(strip.text = element_text(size=18)) +
+  theme(legend.position = "none")
+ggsave("cin_organoid_parent_final.svg", cin_organoid_parent, width=4, height=4)
+
+ebv_organoid_parent = ggpaired(paired_combo_nanostring_cancer, x = "tissue", y = "STAD_EBV",
+ color = "black", line.color = "patient_id", line.size = 1, fill="gray80") + 
+  ylim(0,1) + 
+  ylab("Probability EBV") +
+  scale_x_discrete(name = "Gastric Cancer Sample", label = c("Parent Tissue", "Organoid")) +
+  stat_compare_means(paired = TRUE, size=6, label.y=0.97, label.x=1.5) +
+  geom_point(inherit.aes = FALSE, aes(x = tissue, y = STAD_EBV, fill= patient_id), shape=21,colour="black", size=4) +
+    theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 18)) +
+  theme(axis.text.y = element_text(colour="black",size = 16)) + 
+  theme(plot.title = element_text(colour="black", size=18,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_text(colour="black", size =18, vjust = 0.05)) +
+  theme(axis.title.y = element_text(colour="black", size=18)) +
+  theme(strip.text = element_text(size=18)) +
+  theme(legend.position = "none")
+ggsave("ebv_organoid_parent_final.svg", ebv_organoid_parent, width=4, height=4)
+
+MSI_organoid_parent = ggpaired(paired_combo_nanostring_cancer, x = "tissue", y = "STAD_MSI",
+ color = "black", line.color = "patient_id", line.size = 1, fill="gray80") + 
+  ylim(0,1) + 
+  ylab("Probability TCGA MSI") +
+  scale_x_discrete(name = "Gastric Cancer Sample", label = c("Parent Tissue", "Organoid")) +
+  stat_compare_means(paired = TRUE, size=6, label.y=0.75) +
+  geom_point(inherit.aes = FALSE, aes(x = tissue, y = STAD_MSI, fill= patient_id), shape=21,colour="black", size=4) +
+   theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 18)) +
+  theme(axis.text.y = element_text(colour="black",size = 16)) + 
+  theme(plot.title = element_text(colour="black", size=18,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_text(colour="black", size =18, vjust = 0.05)) +
+  theme(axis.title.y = element_text(colour="black", size=18)) +
+  theme(strip.text = element_text(size=18)) +
+  theme(legend.position = "none")
+ggsave("MSI_organoid_parent_final.svg", MSI_organoid_parent, width=4, height=4)
+
+
+GS_organoid_parent = ggpaired(paired_combo_nanostring_cancer, x = "tissue", y = "STAD_GS",
+ color = "black", line.color = "patient_id", line.size = 1, fill="gray80") + 
+  ylim(0,1) + 
+  ylab("Probability GS") +
+  scale_x_discrete(name = "Gastric Cancer Sample", label = c("Parent Tissue", "Organoid")) +
+  stat_compare_means(paired = TRUE, size=6, label.y=0.95) +
+  geom_point(inherit.aes = FALSE, aes(x = tissue, y = STAD_GS, fill= patient_id), shape=21,colour="black", size=4, show.legend=FALSE) +
+  theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 18)) +
+  theme(axis.text.y = element_text(colour="black",size = 16)) + 
+  theme(plot.title = element_text(colour="black", size=18,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_text(colour="black", size =18, vjust = 0.05)) +
+  theme(axis.title.y = element_text(colour="black", size=18)) +
+  theme(strip.text = element_text(size=18)) +
+  theme(legend.title = element_text(hjust = .5,size=17),
+        legend.position= c(0.5,0.7), 
+        legend.direction = "horizontal",
+        legend.text= element_text(size=17),
+        legend.box.background = element_rect(size = 1.25, color = "black")) +
+  guides(colour=guide_legend(title="Patient ID",title.position = "top"))
+ggsave("GS_organoid_parent_final.svg", GS_organoid_parent, width=4, height=4)
+
+
+High_organoid_parent = ggpaired(paired_combo_nanostring_cancer, x = "tissue", y = "High_cal",
+ color = "black", line.color = "patient_id", line.size = 1, fill="gray80") + 
+  ylim(0,1) + 
+  ylab("Probability TME High") +
+  scale_x_discrete(name = "Gastric Cancer Sample", label = c("Parent Tissue", "Organoid")) +
+  stat_compare_means(paired = TRUE, size=6, label.y=0.95) +
+  geom_point(inherit.aes = FALSE, aes(x = tissue, y = High_cal, fill= patient_id), shape=21,colour="black", size=4) +
+  theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 18)) +
+  theme(axis.text.y = element_text(colour="black",size = 16)) + 
+  theme(plot.title = element_text(colour="black", size=18,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_text(colour="black", size =18, vjust = 0.05)) +
+  theme(axis.title.y = element_text(colour="black", size=18)) +
+  theme(strip.text = element_text(size=18)) +
+  theme(legend.position = "none")
+ggsave("High_organoid_parent_final.svg", High_organoid_parent, width=4, height=4)
+
+
+```
+#Subtype and pheno data
+```{r}
+library(lubridate)
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/phenodata_mar2023_deid.csv'
+pheno_data<-read.csv(urlfile,na.strings=c("",NA))
+
+pheno_data = pheno_data %>% 
+  mutate(
+    OS_time = 
+      as.duration(diagnosis_date %--% latest_follow_up) / dyears(1)
+    )
+
+colnames(pheno_data)[which(names(pheno_data) == "Patient..")] <- "sample_id"
+
+pheno_data$tx_response_binary = ifelse(grepl("Near Complete", pheno_data$Treatment_Response, ignore.case = T), "response", 
+                              ifelse(grepl("Complete", pheno_data$Treatment_Response, ignore.case = T), "response", 
+                              ifelse(is.na(pheno_data$Treatment_Response), NA,"incomplete")))
+
+
+pheno_data$Lymphovascular_invasion <- str_replace_all(pheno_data$Lymphovascular_invasion, c("no" = "Negative", "yes" = "Positive", "yrs" = "Positive"))
+pheno_data$Perineural._invasion <- str_replace_all(pheno_data$Perineural._invasion, c("-" = NA, "N/A" = NA, "no" = "Negative", "yes" = "Positive", "yrs" = "Positive" ))
+
+
+```
+```{r}
+
+
+gene_specific_nanostring$sample_id = gsub("[^0-9.-]", "",gene_specific_nanostring$sample_id)
+
+gene_specific_nanostring$sample_id = gsub("[[:punct:]]", " ", gene_specific_nanostring$sample_id)
+
+gene_specific_nanostring
+
+colnames(gene_specific_nanostring)[which(names(gene_specific_nanostring) == "sample_id")] <- "patient_id"
+colnames(pheno_data)[which(names(pheno_data) == "sample_id")] <- "patient_id"
+
+
+subtype_pheno = merge(gene_specific_nanostring, pheno_data, by = "patient_id")
+write.csv(subtype_pheno, "subtype_pheno_no67.csv")
+
+survival = coxph(Surv(OS_time, Uncensored) ~ STAD_CIN, data = subtype_pheno)
+summary(survival)
+survfit(Surv(OS_time, Uncensored) ~ STAD_CIN, data = subtype_pheno)
+summary(survfit(Surv(OS_time, Uncensored) ~ STAD_CIN, data = subtype_pheno), times = 60)
+
+
+survival = coxph(Surv(OS_time, Uncensored) ~ scale(STAD_CIN), data = subtype_pheno)
+summary(survival)
+survival = coxph(Surv(OS_time, Uncensored) ~ scale(STAD_GS), data = subtype_pheno)
+summary(survival)
+survival = coxph(Surv(OS_time, Uncensored) ~ scale(STAD_MSI), data = subtype_pheno)
+summary(survival)
+survival = coxph(Surv(OS_time, Uncensored) ~ scale(STAD_EBV), data = subtype_pheno)
+summary(survival)
+survival = coxph(Surv(OS_time, Uncensored) ~ scale(High_cal), data = subtype_pheno)
+summary(survival)
+
+
+ggsurvplot(survfit(Surv(OS_time, Uncensored) ~ TCGA_subtype, data = subtype_pheno))
+
+ggsurvplot(survfit(Surv(OS_time, Uncensored) ~ TME_subtype, data = subtype_pheno))
+
+###lauren Dunns
+dunn_lauren_final = subtype_pheno %>%
+  FSA::dunnTest(STAD_GS ~Lauren.Classification,data=.,method="bonferroni")
+dunn_lauren_final = dunn_lauren_final$res
+dunn_lauren_final$group1 = c("Diffuse","Diffuse","Intestinal")
+dunn_lauren_final$group2 = c("Intestinal","Mixed","Mixed")
+dunn_lauren_final$psymbol <- as.character(cut(dunn_lauren_final$P.adj, c(0, 0.0001, 0.001, 0.01, 0.05, 1), c("****", "***", "**", "*", "ns")))
+
+nanostring_gs_lauren = subtype_pheno %>%
+   filter(!is.na(Lauren.Classification))  %>%
+  ggplot( aes(x = Lauren.Classification, y=STAD_GS)) +
+     geom_boxplot(fill = c("#74ADD1","#FEE090" , "#F46D43" )) + 
+  stat_compare_means(size=5, label.y =0.95) + 
+    stat_pvalue_manual(data = dunn_lauren_final, label = "psymbol",xmin = "group1", xmax = "group2",y.position = c(  0.7,0.8,0.9), size = 7,tip.length =0.0) +
+  ylim(0,1) +
+  ylab("Genomically Stable") +
+  xlab("Lauren Class") +
+        theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 16)) +
+  theme(axis.text.y = element_text(colour="black",size = 16)) + 
+  theme(plot.title = element_text(colour="black", size=16,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_text(colour="black", size =16, vjust = 0.05)) +
+  theme(axis.title.y = element_text(colour="black", size=16)) +
+  theme(strip.text = element_text(size=15)) +
+  theme(legend.title =element_blank(),
+        legend.position="none")
+ggsave("nanostring_gs_lauren_final.svg", nanostring_gs_lauren, width=4, height=3)
+
+
+subtype_pheno$signet_ring_cell = as.factor(subtype_pheno$signet_ring_cell)
+subtype_pheno$signet_ring_cell <- relevel(subtype_pheno$signet_ring_cell, "yes")
+
+nanostring_gs_signet = subtype_pheno %>%
+ filter(!is.na(signet_ring_cell))  %>%
+  ggplot(aes(x = signet_ring_cell, y=STAD_GS)) +
+     geom_boxplot(fill= c("#016C59", "#67A9CF")) + 
+  stat_compare_means(size=5, label.y =0.95) + 
+  ylim(0,1) +
+  ylab("Genomically Stable") +
+  scale_x_discrete(name="Signet Ring Cell", labels=c("Yes", "No")) +
+        theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 12)) +
+  theme(axis.text.y = element_text(colour="black",size = 16)) + 
+  theme(plot.title = element_text(colour="black", size=16,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_text(colour="black", size =16, vjust = 0.05)) +
+  theme(axis.title.y = element_text(colour="black", size=16)) +
+  theme(strip.text = element_text(size=15)) +
+  theme(legend.title =element_blank(),
+        legend.position="none")
+ggsave("nanostring_gs_signet_final.svg", nanostring_gs_signet, width=4, height=3)
+
+```
+
+#SUMMARY TABLE 
+```{r}
+table1_ffpe = subtype_pheno
+
+table1_ffpe$ecog <- str_replace_all(table1_ffpe$ecog, c("1-2" = "1"))
+table1_ffpe$tumor.location <- str_replace_all(table1_ffpe$tumor.location, c("Distal " = "Distal", "Entire stomach" = "Whole stomach"))
+table1_ffpe$H..Pylori.hx <- str_replace_all(table1_ffpe$H..Pylori.hx, c("unknown" = "Unknown", "negative" = "Negative", "no " = "Negative","no" = "Negative", "yes" = "Positive", "positive" = "Positive", "treated" = "Treated"))
+table1_ffpe$H..Pylori.hx <- str_replace_all(table1_ffpe$H..Pylori.hx, c("UnkNegativewn" = "Unknown"))
+table1_ffpe$H..Pylori.hx <- str_replace_all(table1_ffpe$H..Pylori.hx, c("Unknown" = NA))
+table1_ffpe$H..Pylori.hx[ table1_ffpe$H..Pylori.hx == "Unknown" ] <- NA
+
+table1_ffpe$SURGERY <- str_replace_all(table1_ffpe$SURGERY, c("Distal gastrectomy " = "Distal Gastrectomy","Distal Gastrectomy" = "Distal Gastrectomy", "Distal gastrectomy " = "Distal Gastrectomy", "Total gastrectomy " = "Total Gastrectomy"," Total gastrectomy" = "Total Gastrectomy", "Total gastrectomyD2"= "Total Gastrectomy"))
+table1_ffpe$SURGERY <- str_replace_all(table1_ffpe$SURGERY, c("Distal gastrectomy" = "Distal Gastrectomy","Total gastrectomy" = "Total Gastrectomy"))
+table1_ffpe$Smoker <- str_replace_all(table1_ffpe$Smoker, c("es" = "Yes"))
+table1_ffpe$Smoker <- str_replace_all(table1_ffpe$Smoker, c("yYes" = "Yes"))
+
+table1_ffpe$Lymphovascular_invasion <- str_replace_all(table1_ffpe$Lymphovascular_invasion, c("no" = "Negative", "yes" = "Positive", "yrs" = "Positive"))
+table1_ffpe$Perineural._invasion <- str_replace_all(table1_ffpe$Perineural._invasion, c("-" = NA, "N/A" = NA, "no" = "Negative", "yes" = "Positive", "yrs" = "Positive" ))
+
+table1_ffpe$Carcinomatosis <- str_replace_all(table1_ffpe$Carcinomatosis, c("postive" = "positive", "Liver mets" = "positive"))
+
+library(flextable)
+tb_chp5_demo= tbl_summary(table1_ffpe,
+             percent = "column", 
+             include=c("age", "sex","Stage", "Grade","tumor.location", "Lauren.Classification", "signet_ring_cell", "tumor.location")) %>% 
+   remove_row_type(variables = everything(),type = "missing") %>% 
+   add_n(col_label="**n/N (Missing %)**", statistic= "{n} / {N} ({p_miss}%)", add_footnote = "Percent") 
+ 
+tb_chp5_demo_flex = as_flex_table(
+  tb_chp5_demo,
+  include = everything(),
+  return_calls = FALSE,
+  strip_md_bold = TRUE
+)
+```

@@ -1,0 +1,3454 @@
+---
+title: "cell lines"
+author: "Daniel Skubleny"
+date: "08/02/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+##Load Data 
+```{r, warning= FALSE, message=FALSE}
+#Load Data
+edata <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/Expression_21Q4_Public_subsetted.csv", header = TRUE)
+
+pheno <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/sample_info.csv")
+
+
+########Gastric and esophagael
+
+edata <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/gastric_eso_Expression_22Q1_Public_subsetted.csv", header = TRUE)
+
+pheno <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/sample_info.csv")
+
+
+```
+```{r}
+edata = tibble::column_to_rownames(edata, "X")
+edata = t(edata)
+edata = as.data.frame(edata)
+edata = tibble::rownames_to_column(edata, "SYMBOL")
+```
+```{r}
+#Annotate entrez ID
+annotatedfdata = AnnotationDbi::select(org.Hs.eg.db,keys = as.character(edata$SYMBOL), columns = c("SYMBOL","ENTREZID","ENSEMBL"), keytype = "SYMBOL")
+```
+```{r}
+edata = merge(annotatedfdata,edata, by.x="SYMBOL")
+```
+
+```{r}
+#Remove EnsembleID, HUGO and Entrez ID
+edata = dplyr::select(edata, -c("ENTREZID","ENSEMBL")) # Remove HUGO columns
+```
+## Check for NA
+```{r}
+table(is.na(edata$SYMBOL))
+# There is NA due to Entrez Ids that no longer map to gene symbols. 
+```
+```{r}
+#Remove NA Symbols
+edata = edata[!is.na(edata$SYMBOL),]
+```
+## Check for duplicates
+```{r}
+table(duplicated(edata$SYMBOL))
+```
+```{r}
+#Aggregate duplicate genes by mean
+edata %>% group_by(SYMBOL) %>% summarise_all(mean) %>% data.frame() -> edata_merged
+edata = edata_merged
+ #Aggregate and mean duplicate ENTREZIDs 
+```
+
+
+
+##Check for NA genes and NA feature data
+```{r}
+table(is.na(edata$SYMBOL))
+#There is NA Entrez Genes 
+```
+
+```{r}
+edata = edata[!is.na(edata$SYMBOL),]
+```
+
+```{r}
+table(is.na(edata))
+#There is NA data. We will need to investigate this later on. 
+```
+
+
+## Make gene SYMBOL row names
+```{r}
+#This ensures we can set up a matrix for future procedures
+edata = data.frame(edata, row.names = "SYMBOL")
+```
+## Assess dimensions
+```{r}
+#Assess dimensions 
+dim(edata)
+dim(pheno)
+#We can see there is an imbalance. There is RNA seq data missing from the 440 total patients. 
+```
+
+#Assess distribution and transformation
+Boxplot
+```{r}
+# Look at data that is not transformed vs transformed
+par(mfrow=c(1,2))
+boxplot(edata, col=2, range=0)
+```
+Histogram
+```{r}
+par(mfrow=c(1,2))
+hist(edata[,1],col=2)
+```
+Density Plot
+```{r}
+par(mfrow=c(1,2))
+plot(density(edata[,1]),col=2)
+lines(density(edata[,2]),col=3)
+```
+qqPlot
+```{r}
+par(mfrow=c(1,2))
+qqplot(edata[,1], edata[,2],col=3)
+```
+Bland Altman Plot
+```{r}
+# Bland Altman Plot
+mm = edata[,1] - edata[,2]
+aa = edata[,1] + edata[,2]
+plot(aa,mm,col=2) 
+```
+
+#Median intensity 
+```{r}
+median_cells = rowMedians(as.matrix(edata))
+hist(median_cells, breaks=200)
+#Given this is RNAseq count data I will filter low expression genes by mean. 
+```
+
+
+```{r}
+edata = as.data.frame(edata)
+log_edata = filter(edata,rowMeans(edata) > 1)
+dim(log_edata)
+```
+```{r}
+log_edata = log_edata[which(rowMeans(!is.na(log_edata)) > 0.1), which(colMeans(!is.na(log_edata)) > 0.1)]
+dim(log_edata)
+#No significant missing data 
+```
+```{r}
+table(is.na(log_edata))
+#No missing data. Do not need imputation 
+```
+```{r}
+#Check if quantile normalization is required.
+colramp = colorRampPalette(c(3,"white",2))(20)
+plot(density(log_edata[,1]),col=colramp[1],lwd=1,ylim=c(0,.4))
+for(i in 2:37){lines(density(log_edata[,i]),lwd=1,col=colramp[i])}
+#In the plot we can see that quantile normalization will aid in the data analysis
+```
+
+
+#Subtyping TCGA
+```{r}
+housekeeping_genes = c("ACTB", "CTCF", "EIF4G", "HNRNPK", "RPL9", "SUMO3", "XRCC5")
+normalizergenes = c(TCGAfinalgenes,housekeeping_genes)
+
+tcganormalizer <- subset(edata_TCGA, rownames(edata_TCGA) %in% as.matrix(normalizergenes))
+tcganormalizer = t(tcganormalizer)
+  
+cancer_edata_cells <- subset(edata, rownames(edata) %in% as.matrix(normalizergenes))
+cancer_edata_cells = t(cancer_edata_cells)
+```
+```{r}
+#TCGA FSQN to ACRG as reference due to predominate data derived from affymetrix platform and that TME clusters were established ACRG.
+set.seed(99)
+target = as.matrix(tcganormalizer)
+test = as.matrix(cancer_edata_cells)
+fsqn_cancer_cells = quantileNormalizeByFeature(test, target)
+
+```
+```{r}
+fsqn_cancer_cells <- fsqn_cancer_cells[, TCGAfinalgenes]
+```
+#Classify the cancers according to TCGA 
+```{r}
+predict.classify_TCGA = predict(TCGA.finalmodel,fsqn_cancer_cells)
+predict.classify_TCGA_prob = predict(TCGA.finalmodel,fsqn_cancer_cells, type = "prob")
+
+table(predict.classify_TCGA)
+
+
+TCGA_cell_line = as.data.frame(predict.classify_TCGA)
+colnames(TCGA_cell_line) = "TCGA_subtype"
+TCGA_cell_line$sample_id = row.names(fsqn_cancer_cells)
+TCGA_cell_line = cbind(TCGA_cell_line, predict.classify_TCGA_prob)
+
+```
+
+#Subtype ACRG
+
+```{r}
+housekeeping_genes = c("ACTB", "CTCF", "EIF4G", "HNRNPK", "RPL9", "SUMO3", "XRCC5")
+normalizergenes = c(acrgfinalgenes,housekeeping_genes)
+```
+
+```{r}
+#Data sets - reduce to commongenes and transpose for FSQN
+
+#ACRG
+log_ACRG_cancer <- subset(log_ACRG, rownames(log_ACRG) %in% as.matrix(normalizergenes))
+log_ACRG_cancer = t(log_ACRG_cancer)
+
+
+cancer_edata_cells <- subset(edata, rownames(edata) %in% as.matrix(normalizergenes))
+cancer_edata_cells = t(cancer_edata_cells)
+
+```
+
+```{r}
+#FSQN the cancers
+
+set.seed(99)   
+target = as.matrix(log_ACRG_cancer)
+test = as.matrix(cancer_edata_cells)
+classify_ACRG = quantileNormalizeByFeature(test, target)
+```
+```{r}
+classify_ACRG <- classify_ACRG[, acrgfinalgenes]
+```
+#Classify the cancers according to TCGA 
+```{r}
+predict.classify_ACRG = predict(gbm.svm.ACRG_final,classify_ACRG)
+predict.classify_ACRG_prob = predict(gbm.svm.ACRG_final,classify_ACRG, type = "prob")
+
+table(predict.classify_ACRG)
+
+ACRG_cell_line = as.data.frame(predict.classify_ACRG)
+colnames(ACRG_cell_line) = "ACRG_subtype"
+ACRG_cell_line$sample_id = row.names(classify_ACRG)
+ACRG_cell_line = cbind(ACRG_cell_line, predict.classify_ACRG_prob)
+```
+
+
+
+#Subtype TME
+
+```{r}
+housekeeping_genes = c("ACTB", "CTCF", "EIF4G", "HNRNPK", "RPL9", "SUMO3", "XRCC5")
+normalizergenes = c(rntop50,housekeeping_genes)
+```
+
+```{r}
+#Data sets - reduce to commongenes and transpose for FSQN
+log_ACRG_cancer <- subset(log_ACRG, rownames(log_ACRG) %in% as.matrix(normalizergenes))
+log_ACRG_cancer = t(log_ACRG_cancer)
+
+cancer_edata_cells <- subset(edata, rownames(edata) %in% as.matrix(normalizergenes))
+cancer_edata_cells = t(cancer_edata_cells)
+
+#Missing HLA-DRA gene... hist(log_ACRG_cancer[,21]) set to zero
+
+
+####GASTRIC ONLY 
+cancer_edata_cells = as.data.frame(cancer_edata_cells)
+cancer_edata_cells$'HLA-DRA' = c(rep(0,37))
+cancer_edata_cells = as.matrix(cancer_edata_cells)
+
+
+
+####ESO AND GASTRIC
+cancer_edata_cells = as.data.frame(cancer_edata_cells)
+cancer_edata_cells$'HLA-DRA' = c(rep(0,44))
+cancer_edata_cells = as.matrix(cancer_edata_cells)
+```
+
+```{r}
+#FSQN the cancers
+
+set.seed(99)   
+target = as.matrix(log_ACRG_cancer)
+test = as.matrix(cancer_edata_cells)
+classify_TME = quantileNormalizeByFeature(test, target)
+```
+
+```{r}
+#Reduce to final genes
+
+classify_TME <- classify_TME[, rntop50]
+```
+```{r}
+#Classify the cancers according to TCGA 
+
+predict.classify_TME = predict(tme.final,classify_TME)
+predict.classify_TME_prob = predict(tme.final,classify_TME, type = "prob")
+
+table(predict.classify_TME)
+
+predict.classify_TME_prob= tibble::rownames_to_column(predict.classify_TME_prob, "sample_id")
+
+TME_cell_line = as.data.frame(predict.classify_TME)
+colnames(TME_cell_line) = "TCGA_subtype"
+TME_cell_line$sample_id = row.names(classify_TME)
+TME_cell_line = merge(TME_cell_line, predict.classify_TME_prob, by= "sample_id")
+```
+
+```{r}
+#Extract calibrated probabilities 
+
+predict.classify_TME_cal = predict(tme.final_calibration,predict.classify_TME_prob)
+predict.classify_TME_prob_cal = predict(tme.final_calibration,predict.classify_TME_prob, type = "prob")
+colnames(predict.classify_TME_prob_cal) = c("High_cal", "Low_cal")
+
+TME_cal = as.data.frame(row.names(classify_TME))
+TME_cal$TME_subtype_cal = predict.classify_TME_cal
+colnames(TME_cal)[which(names(TME_cal) == "row.names(classify_TME)")] <- "sample_id"
+
+TME_prob_cal = as.data.frame(row.names(classify_TME))
+TME_prob_cal$High_cal = predict.classify_TME_prob_cal$High_cal
+TME_prob_cal$Low_cal = predict.classify_TME_prob_cal$Low_cal
+colnames(TME_prob_cal)[which(names(TME_prob_cal) == "row.names(classify_TME)")] <- "sample_id"
+
+
+
+TME_cell_line = merge(TME_cal, TME_prob_cal, by= "sample_id")
+```
+
+#Drug analysis and phenotype analysis
+
+Note: Low IC50 = more sensitive. Low AUC = more sensitive. 
+
+```{r}
+results = merge(TME_cell_line, TCGA_cell_line, by= "sample_id")
+results = merge(results, ACRG_cell_line, by= "sample_id")
+
+results$sample_id = gsub("\\.", "-", results$sample_id)
+
+combo_data = merge(pheno, results, by.x="DepMap_ID", by.y = "sample_id")
+colnames(combo_data)[which(names(combo_data) == "DepMap_ID")] <- "sample_id"
+
+plot(combo_data$sex, combo_data$TCGA_subtype)
+
+plot(as.factor(combo_data$sex), combo_data$STAD_CIN)
+plot(as.factor(combo_data$sex), combo_data$STAD_MSI)
+plot(as.factor(combo_data$sex), combo_data$STAD_EBV)
+plot(as.factor(combo_data$sex), combo_data$STAD_GS)
+plot(as.factor(combo_data$sex), combo_data$MSI)
+plot(as.factor(combo_data$sex), combo_data$MSS_TP53neg)
+plot(as.factor(combo_data$sex), combo_data$MSS_TP53pos)
+plot(as.factor(combo_data$sex), combo_data$EMT)
+plot(as.factor(combo_data$sex), combo_data$High_cal)
+
+plot(as.factor(combo_data$primary_or_metastasis), combo_data$STAD_CIN)
+plot(as.factor(combo_data$primary_or_metastasis), combo_data$STAD_MSI)
+plot(as.factor(combo_data$primary_or_metastasis), combo_data$STAD_EBV)
+plot(as.factor(combo_data$primary_or_metastasis), combo_data$STAD_GS)
+plot(as.factor(combo_data$primary_or_metastasis), combo_data$MSI)
+plot(as.factor(combo_data$primary_or_metastasis), combo_data$MSS_TP53neg)
+plot(as.factor(combo_data$primary_or_metastasis), combo_data$MSS_TP53pos)
+plot(as.factor(combo_data$primary_or_metastasis), combo_data$EMT)
+plot(as.factor(combo_data$primary_or_metastasis), combo_data$High_cal)
+
+plot(as.factor(combo_data$primary_or_metastasis), as.factor(combo_data$TCGA_subtype))
+
+
+
+plot(as.factor(combo_data$TCGA_subtype), combo_data$age)
+kruskal.test(combo_data$age,as.factor(combo_data$TCGA_subtype))
+
+plot(as.factor(combo_data$ACRG_subtype), combo_data$age)
+kruskal.test(combo_data$age,as.factor(combo_data$ACRG_subtype))
+
+plot(as.factor(combo_data$TME_subtype_cal), combo_data$age)
+kruskal.test(combo_data$age,as.factor(combo_data$TME_subtype_cal))
+
+```
+
+#///////SANGER Drug sensitivity AUC GDSC2
+```{r}
+sanger_drug_AUC <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/Drug_sensitivity_AUC_(Sanger_GDSC2)_subsetted_NAsdropped.csv", row.names=1, stringsAsFactors=TRUE)
+
+sanger_drug_AUC = tibble::rownames_to_column(sanger_drug_AUC, "sample_id")
+
+sanger_drug_AUC= merge(combo_data, sanger_drug_AUC, by="sample_id")
+```
+###PLOT: Subtype probabilities amongst cell lines in the CCLE and included in the SANGER study. 
+```{r}
+combo_data_plot = combo_data
+
+sanger_ids = as.data.frame(sanger_drug_AUC$sample_id)
+sanger_ids$Sanger  = "sanger"
+colnames(sanger_ids) = c("sample_id", "Sanger")
+
+combo_data_plot = merge(combo_data_plot,sanger_ids, by="sample_id", all=TRUE )
+combo_data_plot$Sanger[is.na(combo_data_plot$Sanger)] <- "Excluded"
+combo_data_plot$Sanger = as.factor(combo_data_plot$Sanger)
+levels(combo_data_plot$Sanger) = c("Excluded", "Included")
+
+
+combo_data_plot_long = dplyr::select(combo_data_plot, c("STAD_CIN", "STAD_MSI","STAD_EBV", "STAD_GS","EMT", "MSI","MSS_TP53neg", "MSS_TP53pos","High_cal", "Low_cal", "Sanger"))
+
+
+combo_data_plot_long = tidyr::gather(combo_data_plot_long, subtype, probability, STAD_CIN:Low_cal, factor_key=TRUE)
+
+combo_data_plot_long$subtype = factor(combo_data_plot_long$subtype, c("STAD_CIN", "STAD_EBV", "STAD_GS","STAD_MSI", "EMT", "MSI", "MSS_TP53neg","MSS_TP53pos", "High_cal", "Low_cal"))
+
+
+##Main plot
+cell_line_probs = ggplot(data = combo_data_plot_long,aes(x = subtype, y = probability, fill = subtype))+
+    geom_violin(alpha=0.4, scale = "width",size=1,color=NA, adjust=2.5,show.legend = F) +   
+    geom_boxplot(notch = FALSE,  outlier.size = -1, color="black",lwd=1, alpha = 0.2,show.legend = F) + 
+     ggbeeswarm::geom_quasirandom(inherit.aes=FALSE, data =combo_data_plot_long, aes(x = subtype, y = probability, colour = Sanger, fill=subtype), method = "quasirandom", shape = 21,size=2,stroke=1.75, dodge.width=0.75, width = 0.2,alpha=0.9,show.legend = T, bandwidth = 1)+
+  scale_fill_manual(values = c("#F39B7FFF", "#91D1C2FF","#4DBBD5FF","#E64B35FF", "#A6CEE3", "#3C5488FF", "#8491B4FF", "#33A02C","#925E9FFF","#EFC000FF")) +
+  scale_colour_manual(name = "Sanger Experiment", values = c("#377EB8", "black")) +
+  scale_x_discrete(labels = c("CIN", "EBV", "GS","TCGA MSI", "EMT", "MSI", "MSS TP53-", "MSS TP53+", "High", "Low")) +
+  ylab("Probability") + 
+  ggtitle("Cell Line Subtype Probability Scores") +
+  theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 14,angle = 90, hjust=1, vjust=0.5))  +
+  theme(axis.text.y = element_text(colour="black",size = 14)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_blank()) +
+  theme(axis.title.y = element_text(colour="black", size=14)) + 
+  theme(legend.text = element_text(color = "black", size = 14),
+        legend.title = element_text(color = "black", size = 14),
+        legend.position = "right") +
+  guides(fill = "none") 
+
+ggsave("cell_line_probs.svg", cell_line_probs, width=8, height=4)
+
+
+
+####TEST IF SIMILAR DISTRIBUTION OF STUDY POPULATION IS REFLECTED IN THE CELL LINES
+complete_subtype <- read.csv("~/Documents/R projects/TCGA Draft 2/complete_subtype_mar9.csv", row.names=1, stringsAsFactors=TRUE)
+
+pvals= c(
+wilcox.test(complete_subtype$STAD_CIN,combo_data$STAD_CIN)$p.value,
+wilcox.test(complete_subtype$STAD_MSI,combo_data$STAD_MSI)$p.value,
+wilcox.test(complete_subtype$STAD_EBV,combo_data$STAD_EBV)$p.value,
+wilcox.test(complete_subtype$STAD_GS,combo_data$STAD_GS)$p.value,
+wilcox.test(complete_subtype$EMT,combo_data$EMT)$p.value,
+wilcox.test(complete_subtype$MSI,combo_data$MSI)$p.value,
+wilcox.test(complete_subtype$MSS_TP53neg,combo_data$MSS_TP53neg)$p.value,
+wilcox.test(complete_subtype$MSS_TP53pos,combo_data$MSS_TP53pos)$p.value,
+wilcox.test(complete_subtype$High_cal,combo_data$High_cal)$p.value) #****** significant# p.adjust = 0.009909342
+
+p.adjust(pvals, method="BH")
+
+##JUST the included
+pvals= c(
+wilcox.test(complete_subtype$STAD_CIN,combo_data_plot[combo_data_plot$Sanger=="Included",]$STAD_CIN)$p.value,
+wilcox.test(complete_subtype$STAD_MSI,combo_data_plot[combo_data_plot$Sanger=="Included",]$STAD_MSI)$p.value,
+wilcox.test(complete_subtype$STAD_EBV,combo_data_plot[combo_data_plot$Sanger=="Included",][combo_data_plot$Sanger=="Included",]$STAD_EBV)$p.value,
+wilcox.test(complete_subtype$STAD_GS,combo_data_plot[combo_data_plot$Sanger=="Included",]$STAD_GS)$p.value,
+wilcox.test(complete_subtype$EMT,combo_data_plot[combo_data_plot$Sanger=="Included",]$EMT)$p.value,
+wilcox.test(complete_subtype$MSI,combo_data_plot[combo_data_plot$Sanger=="Included",]$MSI)$p.value,
+wilcox.test(complete_subtype$MSS_TP53neg,combo_data_plot[combo_data_plot$Sanger=="Included",]$MSS_TP53neg)$p.value,
+wilcox.test(complete_subtype$MSS_TP53pos,combo_data_plot[combo_data_plot$Sanger=="Included",]$MSS_TP53pos)$p.value,
+wilcox.test(complete_subtype$High_cal,combo_data_plot[combo_data_plot$Sanger=="Included",]$High_cal)$p.value) #****** significant# p.adjust = 0.009909342
+
+p.adjust(pvals, method="BH")
+
+###PLOT SHOWING COMPARISONS 
+
+probabilities_long = dplyr::select(complete_subtype, c("STAD_CIN", "STAD_MSI","STAD_EBV", "STAD_GS","EMT", "MSI","MSS_TP53neg", "MSS_TP53pos","High_cal", "Low_cal"))
+probabilities_long = tidyr::gather(probabilities_long, subtype, probability, STAD_CIN:Low_cal, factor_key=TRUE)
+probabilities_long$subtype = factor(probabilities_long$subtype, c("STAD_CIN", "STAD_EBV", "STAD_GS","STAD_MSI", "EMT", "MSI", "MSS_TP53neg","MSS_TP53pos", "High_cal", "Low_cal"))
+probabilities_long$Specimen = "Bulk Tumour"
+
+combo_cellline_plot_long = combo_data_plot_long
+combo_cellline_plot_long = combo_cellline_plot_long[,-1]
+combo_cellline_plot_long$Specimen = "Cell Line"
+####THIS SHOWS that the subtypes are reasonably represented in 2d cell lines when compared to bulk tumours. They DO NOT represent the high or low subtypes though. 
+combo_cellline_plot_long = rbind(combo_cellline_plot_long,probabilities_long )
+
+
+
+
+ 
+##Supplemental plot
+supp_cell_line_probs = ggplot(data = combo_cellline_plot_long,aes(x = subtype, y = probability, fill = Specimen))+
+     ggbeeswarm::geom_quasirandom(inherit.aes=FALSE, data =combo_cellline_plot_long, aes(x = subtype, y = probability, colour = subtype, fill=Specimen), method = "quasirandom", shape = 21,size=2,stroke=1.25, dodge.width=0.75, width = 0.1,alpha=0.8,show.legend = T, bandwidth = 1)+
+      geom_boxplot(notch = FALSE,  outlier.size = -1, color="black",lwd=1, alpha = 0.5,show.legend = F) + 
+  scale_colour_manual(values = c("#F39B7FFF", "#91D1C2FF","#4DBBD5FF","#E64B35FF", "#A6CEE3", "#3C5488FF", "#8491B4FF", "#33A02C","#925E9FFF","#EFC000FF")) +
+  scale_fill_manual(name = "Sample Origin", values = c("gray85", "black")) +
+  scale_x_discrete(labels = c("CIN", "EBV", "GS","TCGA MSI", "EMT", "MSI", "MSS TP53-", "MSS TP53+", "High", "Low")) +
+  ylab("Probability") + 
+  ggtitle("Cell Line Subtype Probability Scores") +
+  theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 12,angle = 90, hjust=1, vjust=0.5))  +
+  theme(axis.text.y = element_text(colour="black",size = 12)) + 
+  theme(plot.title = element_text(colour="black", size=12,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_blank()) +
+  theme(axis.title.y = element_text(colour="black", size=12)) + 
+  theme(legend.text = element_text(color = "black", size = 12),
+        legend.title = element_text(color = "black", size = 12)) +
+  guides(colour = "none")
+
+ggsave("supp_cell_line_probs.svg", supp_cell_line_probs, width=12, height=4)
+
+
+#####DONT USE#####
+ggplot(data = combo_cellline_plot_long,aes(x = Specimen, y = probability, fill = subtype))+
+     ggbeeswarm::geom_quasirandom(inherit.aes=FALSE, data =combo_cellline_plot_long, aes(x = Specimen, y = probability, colour = Specimen, fill=subtype), method = "quasirandom", shape = 21,size=2,stroke=1, dodge.width=0.75, width = 0.2,alpha=0.8,show.legend = T, bandwidth = 1)+
+      geom_boxplot(notch = FALSE,  outlier.size = -1, color="black",lwd=1, alpha = 0.5,show.legend = F) + 
+  scale_fill_manual(values = c("#F39B7FFF", "#91D1C2FF","#4DBBD5FF","#E64B35FF", "#A6CEE3", "#3C5488FF", "#8491B4FF", "#33A02C","#925E9FFF","#EFC000FF")) +
+  scale_colour_manual(name = "Sanger Experiment", values = c("darkgray", "black")) +
+  scale_x_discrete(labels = c("Bulk", "Cell Line")) + 
+  stat_compare_means(inherit.aes=FALSE,data =combo_cellline_plot_long, aes(x = Specimen, y = probability))+
+  ylab("Probability") + 
+  ggtitle("Cell Line Subtype Probability Scores") +
+  theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 14,angle = 90, hjust=1, vjust=0.5))  +
+  theme(axis.text.y = element_text(colour="black",size = 14)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_blank()) +
+  theme(axis.title.y = element_text(colour="black", size=14)) + 
+  guides(fill = "none") + facet_wrap(~subtype)
+#####DONT USE#####
+
+```
+
+
+
+###Correlation of fluorouracil, docetaxel, a platinum, a epirubicin
+```{r}
+sanger_drug_AUC_base = dplyr::select(sanger_drug_AUC, c("High_cal", "STAD_CIN","STAD_EBV","STAD_GS","STAD_MSI","MSS_TP53neg", "MSS_TP53pos","MSI","EMT","X5.fluorouracil..GDSC2.1073.","oxaliplatin..GDSC2.1089.", "cisplatin..GDSC2.1005.", "docetaxel..GDSC2.1007.", "paclitaxel..GDSC2.1080.", "epirubicin..GDSC2.1511." ))
+
+
+#####COR TEST BASE
+sanger_base_corr = Hmisc::rcorr(as.matrix(sanger_drug_AUC_base))
+
+flattenCorrMatrix <- function(cormat, pmat) {
+  ut <- upper.tri(cormat)
+  data.frame(
+    row = rownames(cormat)[row(cormat)[ut]],
+    column = rownames(cormat)[col(cormat)[ut]],
+    cor  =(cormat)[ut],
+    p = pmat[ut]
+    )
+}
+sanger_base_corr_df = flattenCorrMatrix(sanger_base_corr$r, sanger_base_corr$P)
+sanger_base_corr_df = sanger_base_corr_df %>% filter(row== "High_cal" | row== "STAD_CIN"| row== "STAD_MSI"| row== "STAD_EBV"| row== "STAD_GS"| row== "MSI"| row== "EMT"| row== "MSS_TP53neg"| row== "MSS_TP53pos")
+sanger_base_corr_df = sanger_base_corr_df[-c(1:45),]
+sanger_base_corr_df$p.adjust = p.adjust(sanger_base_corr_df$p, method = "BH")
+sanger_base_corr_df$sig = cut(sanger_base_corr_df$p, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+sanger_base_corr_df$sig.adjust = cut(sanger_base_corr_df$p.adjust, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+#######
+
+pheatmap(sanger_base_corr[["r"]][-c(10:nrow(sanger_base_corr[["r"]])), -c(1:9)])
+
+
+library(ComplexHeatmap)
+set.seed(99)
+
+#heatmap matrix
+mat = sanger_base_corr[["r"]][-c(10:nrow(sanger_base_corr[["r"]])), -c(1:9)]
+#Heatmap legend scale
+cols = brewer.pal(9, "RdBu")
+col_hm=circlize::colorRamp2(seq(min(mat), max(mat), length = 9), colors = rev(cols))
+
+#boxplot colours
+x = apply(sanger_drug_AUC_base[,c(10:15)], 2, FUN = median, na.rm=TRUE)
+y = column_order(heatmap_sanger_base)
+x = as.data.frame(x)[y, ]
+
+map2color<-function(x,pal,limits=NULL){
+    if(is.null(limits)) limits=range(x)
+    pal[findInterval(x,seq(limits[1],limits[2],length.out=length(pal)+1), all.inside=TRUE)]
+}
+mypal <- colorRampPalette(brewer.pal(9, "Greens"))(50)
+col_box = map2color(x,mypal)
+scales::show_col(mypal)
+
+#heatmap annotation
+column_ha = HeatmapAnnotation(AUC = anno_boxplot(sanger_drug_AUC_base[,c(10:15)], which = "col",gp = gpar(fill = "#7FC97F"), axis=TRUE,  height = unit(3, "cm")))
+
+
+heatmap_sanger_base = ComplexHeatmap::pheatmap(mat, 
+                col = col_hm,
+                heatmap_legend_param = 
+                  list(at = c(-0.6,-0.3,0,0.3, 0.6),col_fun = col_hm), 
+                name = " ",  
+                top_annotation = column_ha)
+
+heatmap_sanger_base@top_annotation@anno_list[["AUC"]]@label = "Area Under the Curve"
+draw(heatmap_sanger_base, padding = unit(c(2, 2, 2, 20), "mm"))
+
+decorate_annotation("AUC", {
+    grid.lines(c(0, 1), unit(c(1, 1, NA,0.9,0.9,NA,0.8, 0.8, NA,0.7,0.7,NA,0.6,0.6), "native"), gp = gpar(col = "darkgray", alpha=0.3))
+})
+
+
+#EXPORT
+svg(filename="heatmap_sanger_base.svg", width=8, height=8)
+heatmap_sanger_base = ComplexHeatmap::pheatmap(mat, 
+                col = col_hm,
+                heatmap_legend_param = 
+                  list(at = c(-0.6,-0.3,0,0.3, 0.6),col_fun = col_hm), 
+                name = " ",  
+                top_annotation = column_ha)
+
+heatmap_sanger_base@top_annotation@anno_list[["AUC"]]@label = "Area Under the Curve"
+draw(heatmap_sanger_base, padding = unit(c(2, 2, 2, 20), "mm"))
+
+decorate_annotation("AUC", {
+    grid.lines(c(0, 1), unit(c(1, 1, NA,0.9,0.9,NA,0.8, 0.8, NA,0.7,0.7,NA,0.6,0.6), "native"), gp = gpar(col = "darkgray", alpha=0.3))
+})
+dev.off()
+
+######
+
+sanger_drug_AUC_base_long = tidyr::gather(sanger_drug_AUC_base, drug, auc, names(sanger_drug_AUC_base[,c(10:ncol(sanger_drug_AUC_base))]))
+  
+ggplot(sanger_drug_AUC_base_long, aes(x=drug, y = auc)) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3)
+
+ggplot(sanger_drug_AUC, aes(x=cisplatin..GDSC2.1005., y = MSS_TP53neg)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE)
+
+
+```
+###Comprehensive analysis 
+```{r}
+#Filter out drugs with greater than 25%  of cell lines missing
+sanger_drug_AUC = sanger_drug_AUC[lapply(sanger_drug_AUC, function(x) sum(is.na(x)) / length(x) ) <= 0.25 ]
+
+sanger_drug_AUC_cor = sanger_drug_AUC[,-c(2:26)]
+sanger_drug_AUC_cor = dplyr::select(sanger_drug_AUC_cor, -c("TME_subtype_cal","TCGA_subtype","ACRG_subtype"))
+
+  
+cor_matt_sanger_drug_AUC = cor((sanger_drug_AUC_cor[,-1]),use="pairwise.complete.obs", method="pearson")
+cor_matt_sanger_drug_AUC = cor_matt_sanger_drug_AUC[-c(11:nrow(cor_matt_sanger_drug_AUC)), -c(1:10)] 
+
+#####COR TEST
+sanger_corr = Hmisc::rcorr(as.matrix(sanger_drug_AUC_cor[,-1]))
+flattenCorrMatrix <- function(cormat, pmat) {
+  ut <- upper.tri(cormat)
+  data.frame(
+    row = rownames(cormat)[row(cormat)[ut]],
+    column = rownames(cormat)[col(cormat)[ut]],
+    cor  =(cormat)[ut],
+    p = pmat[ut]
+    )
+}
+sanger_corr_df = flattenCorrMatrix(sanger_corr$r, sanger_corr$P)
+sanger_corr_df = sanger_corr_df %>% filter(row== "High_cal" | row== "Low_cal" | row== "STAD_CIN"| row== "STAD_MSI"| row== "STAD_EBV"| row== "STAD_GS"| row== "MSI"| row== "EMT"| row== "MSS_TP53neg"| row== "MSS_TP53pos")
+sanger_corr_df = sanger_corr_df[-c(1:45),]
+sanger_corr_df$p.adjust = p.adjust(sanger_corr_df$p, method = "BH")
+sanger_corr_df$sig = cut(sanger_corr_df$p, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+sanger_corr_df$sig.adjust = cut(sanger_corr_df$p.adjust, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+sanger_corr_df$rsquared = abs(sanger_corr_df$cor)^2
+#######
+
+sanger_mean_auc = colMeans(sanger_drug_AUC[,c(40:154)], na.rm=TRUE)
+sanger_mean_auc = as.data.frame(sanger_mean_auc)
+sanger_mean_auc = tibble::rownames_to_column(sanger_mean_auc, "drug_name")
+sanger_corr_df = merge(sanger_corr_df,sanger_mean_auc, by.x = "column", by.y="drug_name" )
+
+table(is.na(cor_matt_sanger_drug_AUC))
+giveNAs = which(is.na(as.matrix(cor_matt_sanger_drug_AUC)),arr.ind=TRUE)
+head(giveNAs)
+cor_matt_sanger_drug_AUC = cor_matt_sanger_drug_AUC[, colSums(is.na(cor_matt_sanger_drug_AUC)) != nrow(cor_matt_sanger_drug_AUC)]
+table(is.na(cor_matt_sanger_drug_AUC))
+
+
+####VOLCANO PLOT FOR SANGER_CORR_DF
+sanger_corr_df_plot = sanger_corr_df
+
+sanger_corr_df_plot$row = factor(sanger_corr_df_plot$row, c("STAD_CIN", "STAD_EBV", "STAD_GS","STAD_MSI", "EMT", "MSI", "MSS_TP53neg","MSS_TP53pos", "High_cal", "Low_cal"))
+
+sanger_corr_df_plot = sanger_corr_df_plot %>% 
+  filter(!row =="Low_cal") 
+sanger_corr_df_plot$drug_name = 
+  
+  
+sanger_corr_df_plot$drug_name = gsub("..GDSC2.*","",sanger_corr_df_plot$column)
+sanger_corr_df_plot$drug_name =  gsub('\\.', '-', sanger_corr_df_plot$drug_name)
+sanger_corr_df_plot$drug_name = toupper(sanger_corr_df_plot$drug_name)
+
+
+cor_volcano = sanger_corr_df_plot %>%
+  ggplot(aes(x = cor, y = -log10(p), fill= row, label=drug_name)) + 
+  geom_hline(yintercept = 1.30103, linetype=2) +
+  geom_point(shape=21,size=3.5, alpha=0.9,colour="black") + 
+  scale_fill_manual(name="Subtype", labels = c("CIN", "EBV", "GS","TCGA MSI", "EMT", "MSI", "MSS TP53-", "MSS TP53+", "High"),   values = c("#F39B7FFF", "#91D1C2FF","#4DBBD5FF","#E64B35FF", "#A6CEE3", "#3C5488FF", "#8491B4FF", "#33A02C","#925E9FFF")) + 
+   ggrepel::geom_text_repel(
+    data          = subset(sanger_corr_df_plot, abs(cor) > 0.6),
+    nudge_x       = 0 - subset(sanger_corr_df_plot, abs(cor) > 0.6)$cor,
+    segment.size  = 0.2,
+    segment.color = "black",
+    direction     = "y"
+  ) + 
+  ggtitle("Pearson Correlation Volcano Plot") +
+  xlab("Pearson Correlation Coefficient") + 
+  ylab(expression("-log"[10]~"(p value)")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 14))  +
+  theme(axis.text.y = element_text(colour="black",size = 14)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_text(colour="black",size = 14, vjust=-10)) +
+  theme(axis.title.y = element_text(colour="black", size=14)) + 
+  theme(plot.margin = unit(c(0.5,0.5,3,0.5), "cm")) +
+  theme(legend.position = c(0, -0.5),
+        legend.direction = "horizontal",
+        legend.justification=c(0.1,1),
+        legend.text = element_text(color = "black", size = 13),
+        legend.title = element_text(color = "black", size = 13))
+
+ggsave("cor_volcano.svg", cor_volcano, width=6.2, height=4.25)
+
+
+pheatmap(cor_matt_sanger_drug_AUC)
+
+check = as.data.frame(t(cor_matt_sanger_drug_AUC))
+check = tibble::rownames_to_column(check, "drug_name")  
+check_long = tidyr::gather(check, subtype, value, High_cal:EMT )
+
+check_long$drug_name_id = str_sub(check_long$drug_name, start= -5, end=-2)
+
+drug_types <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/screened_compunds_rel_8.2.csv", stringsAsFactors=TRUE)
+
+check_long = merge(drug_types,check_long, by.x = "DRUG_ID", by.y = "drug_name_id"  )
+
+	
+###DISCUSS THE DIFFERENCES BETWEEN CIN AND EBV and the realistic results obtained for these signatures in reference to findings in the TCGA paper. 
+check_long_plot_a = check_long
+check_long_plot_a$sig = check_long_plot_a$TARGET_PATHWAY=="DNA replication" | check_long_plot_a$TARGET_PATHWAY=="PI3K/MTOR signaling"
+check_long_plot_a$sig = as.factor(check_long_plot_a$sig)
+check_long_plot_a$sig = relevel(check_long_plot_a$sig, "TRUE")
+
+msstp53pos_targets = check_long_plot_a %>%
+    filter(subtype=="MSS_TP53pos") %>%
+    group_by(TARGET_PATHWAY) %>% 
+    filter(n() > 3) %>%
+    ggplot(aes(x=value, y=reorder(TARGET_PATHWAY, -value), colour=sig)) + 
+    geom_vline(xintercept = 0, linetype=2, alpha=0.8) +
+    stat_summary(fun.data = mean_cl_boot, geom="errorbar", width=0.5, size=1.5) +
+    stat_summary(fun.data = mean_cl_boot, geom="point", size = 5) +
+    scale_colour_manual(name = "Adjusted p",labels=c("Significant", "NS"),values = c("#B2182B","#4393C3")) +
+    ylab("Target Pathway") +
+    xlab("Mean Pearson Correlation [95% CI]") +
+    ggtitle("Effect of MSS TP53+ score on drug targets") +
+    theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 14))  +
+  theme(axis.text.y = element_text(colour="black",size = 14)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_text(colour="black",size = 14)) +
+  theme(axis.title.y = element_text(colour="black", size=14)) + 
+  theme(legend.position = "bottom",
+        legend.text = element_text(color = "black", size = 13),
+        legend.title = element_text(color = "black", size = 13))
+    
+ggsave("msstp53pos_targets.svg", msstp53pos_targets, width=7, height=4)
+
+check_long_plot_b= check_long
+check_long_plot_b$comparison = ifelse(check_long_plot_b$TARGET_PATHWAY=="EGFR signaling", "Favourable",
+                                      ifelse(check_long_plot_b$TARGET_PATHWAY=="DNA replication" | check_long_plot_b$TARGET_PATHWAY=="Mitosis" |check_long_plot_b$TARGET_PATHWAY=="Other"|check_long_plot_b$TARGET_PATHWAY=="Genome integrity"|check_long_plot_b$TARGET_PATHWAY=="PI3K/MTOR signaling", "Unfavourable", "Not significant"))
+
+check_long_plot_b %>%
+   filter(subtype=="STAD_CIN") %>%
+   kruskal.test(value~TARGET_PATHWAY, data=.)
+  
+  
+cin_targets = check_long_plot_b %>%
+   filter(subtype=="STAD_CIN") %>%
+   group_by(TARGET_PATHWAY) %>% 
+   filter(n() > 3) %>%
+ggplot(aes(x=value, y=reorder(TARGET_PATHWAY, -value), fill = comparison)) +
+  geom_vline(xintercept = 0, linetype=2) + 
+  geom_boxplot(alpha=0.9) +
+  scale_fill_manual(name="Efficacy", values=c("#4DAF4A", "#999999", "#E41A1C" )) +
+  scale_x_continuous(breaks = c(-0.6,-0.4,-0.2,0,0.2,0.4)) +
+  ylab("Drug Target Pathway") +
+  xlab("Pearson Correlation Coefficient") +
+  ggtitle("CIN score and drug target efficacy") +
+  annotate("text",x=0.45, y=12, label="Kruskal-Wallis,\n p<0.001", hjust=1, size=4.25) + 
+  theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 13))  +
+  theme(axis.text.y = element_text(colour="black",size = 13)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_text(colour="black",size = 14, vjust=-8)) +
+  theme(axis.title.y = element_text(colour="black", size=14)) + 
+  theme(plot.margin = unit(c(0.5,0.5,3,0.5), "cm")) +
+  theme(legend.position = c(0, -0.35),
+        legend.direction = "horizontal",
+        legend.justification=c(0.25,1),
+        legend.text = element_text(color = "black", size = 13),
+        legend.title = element_text(color = "black", size = 13))
+
+ggsave("cin_targets.svg", cin_targets, width=7, height=4.5)
+
+
+check_long_plot_b %>%
+   filter(subtype=="STAD_CIN") %>%
+   group_by(TARGET_PATHWAY)  %>%
+   filter(n() > 3) %>% group_by(TARGET_PATHWAY)  %>% dplyr::summarize(Mean = mean(value, na.rm=TRUE))
+
+   
+average_effect=  check_long_plot_b %>%
+   group_by(subtype, TARGET_PATHWAY)  %>%
+   filter(n() > 3) %>% group_by(subtype, TARGET_PATHWAY)  %>% dplyr::summarize(Mean = mean(value, na.rm=TRUE))
+
+average_effect %>%
+   filter(TARGET_PATHWAY=="Apoptosis regulation") %>%
+ggplot(aes(x=subtype, y=Mean)) + geom_point(alpha=0.9)
+
+quantile(average_effect$Mean, probs = seq(0, 1, 0.1))
+
+average_effect$percentile = abs(average_effect$Mean)>0.1750445145
+View(table(average_effect$TARGET_PATHWAY,average_effect$percentile))
+```
+######POWER CALUCLATIONs
+```{r}
+
+library(MKpower)
+library(pwr)
+library(effsize)
+
+
+#CohenD = (Mean - Mu) / Sd
+
+#For STAD GS and P13K/MTOR signaling 
+cohen.d(check_long[check_long$TARGET_PATHWAY=="PI3K/MTOR signaling" & check_long$subtype=="STAD_GS",]$value, f=NA)
+
+pwr.t.test(n = 13, d = 2.453725, sig.level = 0.05, type ="one.sample")
+#Passes the power test. 
+
+
+#Check wilcox
+
+r = check_long[check_long$TARGET_PATHWAY=="PI3K/MTOR signaling" & check_long$subtype=="STAD_GS",]$value
+hist(r) # appears normal
+shapiro.test(r) #do not reject the null... this this distribution is similar to a normal dist
+
+rx <- function(n) rnorm(n, mean = mean(r), sd = sd(r)) 
+
+sim.ssize.wilcox.test(rx = rx, n.min=5, n.max = 20, iter = 1000,step.size = 5, type = "one.sample",BREAK = FALSE)
+
+
+#check pearsons r power 
+#For sanger there is at least 75% of 20 cases- thus 15 to 20 values. 0.69 is the greatest coefficient. 
+
+pwr.r.test(n = 15, r = 0.69, sig.level = 0.05,alternative = "two.sided")
+#power is 0.85
+
+pwr.r.test(n = 20, r = 0.69, sig.level = 0.05,alternative = "two.sided")
+#power is 0.95
+
+#For the mean case... mean is 0.196 for correlations. For a given "significant drug pathway" the max mean correlation coefficient is about 0.2 to 0.3
+pwr.r.test(n = 20, r = 0.20, sig.level = 0.05,alternative = "two.sided")
+pwr.r.test(n = 15, r = 0.20, sig.level = 0.05,alternative = "two.sided")
+#In this case the power is 0.11-0.14
+
+pwr.r.test(n = 15, r = 0.2, sig.level = 0.05,alternative = "two.sided")
+pwr.r.test(n = 15, r = 0.3, sig.level = 0.05,alternative = "two.sided")
+pwr.r.test(n = 20, r = 0.2, sig.level = 0.05,alternative = "two.sided")
+pwr.r.test(n = 20, r = 0.3, sig.level = 0.05,alternative = "two.sided")
+#In this case the power is for r = 0.2 ... 0.11-0.13 and for r=0.3... 0.14-0.26
+```
+
+#Multiple tests - do the drug effects deviate from no effect?
+```{r}
+t_test_sanger = check_long %>%
+   group_by(TARGET_PATHWAY,subtype) %>% 
+   filter(n() > 3) %>% 
+   rstatix::t_test(value~1, mu = 0) 
+t_test_sanger$p.adjust = p.adjust(t_test_sanger$p, method="BH")
+t_test_sanger$sig = cut(t_test_sanger$p, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+t_test_sanger$sig.adjust = cut(t_test_sanger$p.adjust, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+
+wilcox_targetpathway =  check_long %>%
+   group_by(subtype) %>% 
+   filter(n() > 3) %>% 
+   rstatix::pairwise_wilcox_test(value~TARGET_PATHWAY, detailed = TRUE, p.adjust.method ="BH") 
+
+pairwise_wilcox_test
+
+t_test_sanger_mann = check_long %>%
+   group_by(TARGET_PATHWAY,subtype) %>% 
+   filter(n() > 3) %>% 
+   rstatix::wilcox_test(value~1, mu = 0) 
+t_test_sanger_mann$p.adjust = p.adjust(t_test_sanger_mann$p, method="BH")
+t_test_sanger_mann$sig = cut(t_test_sanger_mann$p, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+t_test_sanger_mann$sig.adjust = cut(t_test_sanger_mann$p.adjust, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+
+effect_size = check_long %>%
+   group_by(TARGET_PATHWAY,subtype) %>% 
+   filter(n() > 3) %>% 
+   rstatix::wilcox_effsize(value~1, mu = 0) 
+t_test_sanger_mann$effect_size = effect_size$effsize
+t_test_sanger_mann$magnitude = effect_size$magnitude
+t_test_sanger_mann$log10p = -log10(t_test_sanger_mann$p)
+plot(t_test_sanger_mann$effect_size, t_test_sanger_mann$log10p)
+
+####SIGNIFICANT targets are DNA replication, PIK3CA and ERK MAPK Signaling
+
+
+ggplot(check_long, aes(x=subtype, y=value)) + stat_compare_means(label.y=0.12) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3) 
+
+check_long_plot_b = check_long
+check_long_plot_b$sig = check_long_plot_b$TARGET_PATHWAY=="EGFR signaling"
+check_long_plot_b$sig = as.factor(check_long_plot_b$sig)
+check_long_plot_b$sig = relevel(check_long_plot_b$sig, "TRUE")
+
+check_long %>%
+    filter(TARGET_PATHWAY=="ERK MAPK signaling") %>%
+    filter(!subtype=="Low_cal") %>%
+    ggplot(aes(x=value, y = reorder(subtype,-value))) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3) 
+
+
+dunn_list = list()
+dunn_test1 = check_long %>%
+   filter(subtype=="STAD_CIN") %>%
+   FSA::dunnTest(value ~ TARGET_PATHWAY, data=., method="bh" )
+dunn_test1 = dunn_test1[["res"]]
+dunn_test1$subtype = "STAD_CIN"
+
+dunn_test2 = check_long %>%
+   filter(subtype=="STAD_EBV") %>%
+   FSA::dunnTest(value ~ TARGET_PATHWAY, data=., method="bh" )
+dunn_test2 = dunn_test2[["res"]]
+dunn_test2$subtype = "STAD_EBV"
+
+dunn_test3 = check_long %>%
+   filter(subtype=="STAD_MSI") %>%
+   FSA::dunnTest(value ~ TARGET_PATHWAY, data=., method="bh" )
+dunn_test3 = dunn_test3[["res"]]
+dunn_test3$subtype = "STAD_MSI"
+
+dunn_test4 = check_long %>%
+   filter(subtype=="STAD_GS") %>%
+   FSA::dunnTest(value ~ TARGET_PATHWAY, data=., method="bh" )
+dunn_test4 = dunn_test4[["res"]]
+dunn_test4$subtype = "STAD_GS"
+
+dunn_test5 = check_long %>%
+   filter(subtype=="High_cal") %>%
+   FSA::dunnTest(value ~ TARGET_PATHWAY, data=., method="bh" )
+dunn_test5 = dunn_test5[["res"]]
+dunn_test5$subtype = "High_cal"
+
+dunn_test6 = check_long %>%
+   filter(subtype=="EMT") %>%
+   FSA::dunnTest(value ~ TARGET_PATHWAY, data=., method="bh" )
+dunn_test6 = dunn_test6[["res"]]
+dunn_test6$subtype = "EMT"
+
+dunn_test7 = check_long %>%
+   filter(subtype=="MSI") %>%
+   FSA::dunnTest(value ~ TARGET_PATHWAY, data=., method="bh" )
+dunn_test7 = dunn_test7[["res"]]
+dunn_test7$subtype = "MSI"
+
+dunn_test8 = check_long %>%
+   filter(subtype=="MSS_TP53neg") %>%
+   FSA::dunnTest(value ~ TARGET_PATHWAY, data=., method="bh" )
+dunn_test8 = dunn_test8[["res"]]
+dunn_test8$subtype = "MSS_TP53neg"
+dunn_list = dunn_test8
+
+dunn_test9 = check_long %>%
+   filter(subtype=="MSS_TP53pos") %>%
+   FSA::dunnTest(value ~ TARGET_PATHWAY, data=., method="bh" )
+dunn_test9 = dunn_test9[["res"]]
+dunn_test9$subtype = "MSS_TP53pos"
+dunn_list = dunn_test9
+
+dunn_list = rbind(dunn_test1, dunn_test2,dunn_test3, dunn_test4,dunn_test5, dunn_test6,dunn_test7, dunn_test8,dunn_test9)
+dunn_list$sig = cut(dunn_list$P.unadj, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+dunn_list$sig.adjust = cut(dunn_list$P.adj, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+
+table(dunn_list[dunn_list$P.adj<0.05,]$Comparison)
+
+#Significant terms heatmap
+sig_comp = dunn_list[dunn_list$P.adj<0.05,]$Comparison
+dunn_list_wide = dunn_list %>% filter(str_detect(Comparison, paste(sig_comp, collapse="|")))
+dunn_list_wide = dplyr::select(dunn_list_wide, c("Comparison", "subtype", "Z"))
+dunn_list_wide = tidyr::spread(dunn_list_wide, subtype, Z)
+dunn_list_wide = tibble::column_to_rownames(dunn_list_wide, "Comparison")
+pheatmap(as.matrix(dunn_list_wide))
+
+
+cheese = check_long %>%
+   filter(!subtype=="Low_cal") %>%
+   group_by(TARGET_PATHWAY,subtype) %>% 
+   filter(n() > 3) %>% 
+   FSA::dunnTest(value ~ TARGET_PATHWAY, data=., method="bh")
+
+
+####DUNN for PI3K/MTOR signaling targets
+dunn_test_pi3k = check_long %>%
+   filter(TARGET_PATHWAY=="PI3K/MTOR signaling") %>%
+   filter(!subtype=="Low_cal") %>%
+   FSA::dunnTest(value ~ subtype, data=., method="bonferroni" )
+dunn_test_pi3k = dunn_test_pi3k[["res"]]
+dunn_test_pi3k$sig = cut(dunn_test_pi3k$P.unadj, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+dunn_test_pi3k$sig.adjust = cut(dunn_test_pi3k$P.adj, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+
+dunn_test_pi3k = check_long %>%
+   filter(TARGET_PATHWAY=="PI3K/MTOR signaling") %>%
+   filter(!subtype=="Low_cal") %>%
+   rstatix::dunn_test(value ~ subtype,data=., p.adjust.method="bonferroni" )
+dunn_test_pi3k = dunn_test_pi3k[["res"]]
+dunn_test_pi3k$sig = cut(dunn_test_pi3k$p, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+dunn_test_pi3k$sig.adjust = cut(dunn_test_pi3k$p.adj, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+
+
+#Z score = 1.96 for unadjusted p value cutoff
+multicomp_sangerdrug <- read.csv("~/Documents/R projects/TCGA Draft 2/multicomp_sangerdrug.csv", stringsAsFactors=TRUE)
+
+multicomp_sangerdrug$sig = ifelse(multicomp_sangerdrug$sig=="****", "***",
+                           ifelse(multicomp_sangerdrug$sig=="***","***",
+                           ifelse(multicomp_sangerdrug$sig=="**", "**",
+                           ifelse(multicomp_sangerdrug$sig=="*", "*", "ns"))))
+multicomp_sangerdrug$sig = as.factor(multicomp_sangerdrug$sig)
+multicomp_sangerdrug$sig <- factor(multicomp_sangerdrug$sig, levels = c("***" , "**", "*", "ns"))
+
+
+dunns_plot = ggplot(multicomp_sangerdrug, aes(x = Z, y=reorder(Test,-Z), fill=sig))  + 
+  geom_vline(xintercept=-1.96, linetype=2) +
+  geom_bar(stat = "identity", alpha=0.8, colour= "black", width=0.75) + 
+  ggtitle("Dunn's Multiple Comparison's") + 
+  xlab("Z-statistic") + 
+  ylab("Subtype") + 
+  scale_fill_manual(name="Adjusted P (Bonferroni)", labels=c("<0.001", "<0.01", "<0.05", "NS"),values=c("#006837","#41AB5D", "#A1D99B", "black")) + 
+  facet_wrap(~Reference) +
+     theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 13)) +
+  theme(axis.text.y = element_text(colour="black",size = 13)) + 
+  theme(plot.title = element_text(colour="black", size=13,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_text(colour="black", size =13, vjust = 0.05)) +
+  theme(axis.title.y = element_text(colour="black", size=13)) +
+  theme(strip.background =element_rect(fill="white"),
+        strip.text = element_text(size=13),
+        strip.text.x = element_text(margin = ggplot2::margin(0,0,0,0, "cm"))) +
+  theme(legend.title =element_text(colour="black", size = 13),
+        legend.text = element_text(colour="black", size = 13),
+        legend.position="bottom",
+        legend.justification=c(1.2,1))
+
+ggsave("dunns_plot.svg", dunns_plot, width= 6, height = 3.6)
+
+
+
+### PI3K plot
+check_long_plot_c = check_long
+check_long_plot_c$comparison = ifelse(check_long_plot_c$subtype=="EMT" |check_long_plot_c$subtype=="STAD_EBV" | check_long_plot_c$subtype=="STAD_MSI"| check_long_plot_c$subtype=="MSS_TP53neg", "Favourable", "Unfavourable")
+
+check_long_plot_c$comparison_b = ifelse(check_long_plot_c$subtype=="EMT" |check_long_plot_c$subtype=="STAD_EBV" | check_long_plot_c$subtype=="STAD_MSI", "Favourable",
+                                      ifelse(check_long_plot_c$subtype=="STAD_GS" | check_long_plot_c$subtype=="High_cal" |check_long_plot_b$subtype=="MSS_TP53pos"|check_long_plot_c$subtype=="STAD_CIN"|check_long_plot_c$subtype=="MSI", "Unfavourable", NA))
+
+check_long_plot_c$comparison_c = ifelse(check_long_plot_c$subtype=="MSS_TP53neg", "Favourable",
+                                      ifelse(check_long_plot_c$subtype=="STAD_CIN" | check_long_plot_c$subtype=="MSI", "Unfavourable", NA))
+check_long_plot_c$comparison = as.factor(check_long_plot_c$comparison)
+check_long_plot_c$comparison_b = as.factor(check_long_plot_c$comparison_b)
+check_long_plot_c$comparison_c = as.factor(check_long_plot_c$comparison_c)
+
+check_long_plot_c = check_long_plot_c %>%
+    filter(TARGET_PATHWAY=="PI3K/MTOR signaling") %>%
+    filter(!subtype=="Low_cal")
+
+#Order of decreasing correlation value
+check_long_plot_c$subtype = factor(check_long_plot_c$subtype, levels = rev(c("EMT", "STAD_EBV", "STAD_MSI", "MSS_TP53neg", "MSI", "STAD_CIN", "MSS_TP53pos", "High_cal", "STAD_GS")))
+###PLOT
+
+pik3_drug_plot = ggplot(check_long_plot_c, aes(x=value, y = subtype, fill = subtype)) + 
+    geom_vline(xintercept = 0, linetype=2) +
+    geom_boxplot(alpha=0.85) +
+    ggtitle("Efficacy of PI3K/MTOR targeted therapy according to subtype") +
+    xlab("Pearson Correlation Coefficient") +
+    ylab("Molecular Subtype") +
+    scale_fill_manual(values= rev(c("#A6CEE3","#91D1C2FF","#E64B35FF","#8491B4FF","#3C5488FF","#F39B7FFF","#33A02C","#925E9FFF","#4DBBD5FF" ))) +
+    scale_y_discrete(labels=rev(c("EMT", "EBV", "TCGA MSI", "MSS TP53-", "MSI", "CIN", "MSS TP53+", "TME High", "GS"))) +
+  annotate("text", label="Kruskal-Wallis, p=<0.001", x=0.32, y=8.5) +
+   theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 14)) +
+  theme(axis.text.y = element_text(colour="black",size = 14)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_text(colour="black", size =15, vjust = -8)) +
+  theme(axis.title.y = element_text(colour="black", size=15)) +
+  theme(plot.margin = unit(c(0.5,0.5,2,0.5), "cm")) +
+  theme(legend.title =element_blank(),
+        legend.position="none")
+ggsave("pik3_drug_plot.svg", pik3_drug_plot, height = 4, width = 7)
+  
+  
+scale_fill_manual(values = c("#F39B7FFF", "#91D1C2FF","#4DBBD5FF","#E64B35FF", "#A6CEE3", "#3C5488FF", "#8491B4FF", "#33A02C","#925E9FFF","#EFC000FF")) +
+  scale_colour_manual(name = "Sanger Experiment", values = c("#377EB8", "black")) +
+  scale_x_discrete(labels = c("CIN", "EBV", "GS","TCGA MSI", "EMT", "MSI", "MSS TP53-", "MSS TP53+", "High", "Low")) +
+  
+  
+  
+  
+  
+
+check_long %>%
+    filter(TARGET_PATHWAY=="DNA replication") %>%
+    filter(!subtype=="Low_cal") %>%
+    ggplot(aes(x=value, y = reorder(subtype,-value))) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3) 
+
+
+
+
+
+####LONG
+sanger_drug_AUC_long = sanger_drug_AUC[,-c(2:26)]
+sanger_drug_AUC_long = dplyr::select(sanger_drug_AUC_long, -c("TME_subtype_cal","TCGA_subtype","ACRG_subtype"))
+
+
+gathercols <- names(sanger_drug_AUC_long[,c(2:11)])
+
+sanger_drug_AUC_long <- tidyr::gather(sanger_drug_AUC_long, subtype, score, all_of(gathercols), factor_key=TRUE)
+
+ggplot(sanger_drug_AUC_long, aes(x=dactinomycin..GDSC2.1811., y = score)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + facet_wrap(~subtype)
+ggplot(sanger_drug_AUC_long, aes(x=docetaxel..GDSC2.1007., y = score)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + facet_wrap(~subtype)
+ggplot(sanger_drug_AUC_long, aes(x=docetaxel..GDSC2.1819., y = score)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + facet_wrap(~subtype)
+ggplot(sanger_drug_AUC_long, aes(x=wnt.c59..GDSC2.1622., y = score)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + facet_wrap(~subtype)
+
+####SANGER LONGER
+gathercols <- names(sanger_drug_AUC_long[,-c(1,117,118)])
+
+sanger_drug_AUC_longer = tidyr::gather(sanger_drug_AUC_long, drug, auc, tidyr::all_of(gathercols), factor_key=TRUE)
+sanger_drug_AUC_longer$drug_name_id = str_sub(sanger_drug_AUC_longer$drug, start= -5, end=-2)
+
+sanger_drug_AUC_longer = merge(drug_types,sanger_drug_AUC_longer, by.x = "DRUG_ID", by.y = "drug_name_id"  )
+
+
+#Supplemental plot
+
+supplemental_drug_facet = sanger_drug_AUC_longer %>%
+  filter(TARGET_PATHWAY=="PI3K/MTOR signaling") %>%
+  filter(subtype=="EMT") %>%
+ggplot(aes(x=auc, y = score)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + ylab("EMT Subtype Score") + xlab("Area Under the Curve (AUC): Efficacy decreases as AUC increases") +ggtitle("PI3K/MTOR targeted therapy: EMT score vs Area Under the Curve drug efficacy") + facet_wrap(~DRUG_NAME ) + theme_bw() + theme(axis.text.x = element_text(colour="black", size = 14)) +
+  theme(axis.text.y = element_text(colour="black",size = 14)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_text(colour="black", size =14, vjust = 0)) +
+  theme(axis.title.y = element_text(colour="black", size=14)) 
+
+ggsave("supplemental_drug_facet.svg", supplemental_drug_facet, height = 6, width = 10)
+
+
+sanger_drug_AUC_longer %>%
+  filter(TARGET_PATHWAY=="EGFR signaling") %>%
+  filter(subtype=="STAD_CIN") %>%
+ggplot(aes(x=auc, y = score)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + facet_wrap(~DRUG_NAME )
+
+sanger_drug_AUC_longer %>%
+  filter(TARGET_PATHWAY=="DNA replication") %>%
+  filter(subtype=="EMT") %>%
+ggplot(aes(x=auc, y = score)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + facet_wrap(~DRUG_NAME , scales="free_x")
+
+sanger_drug_AUC_longer %>%
+  filter(TARGET_PATHWAY=="DNA replication") %>%
+  filter(subtype=="MSI") %>%
+ggplot(aes(x=auc, y = score)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + facet_wrap(~DRUG_NAME , scales="free_x")
+```
+#Multivariate models
+```{r}
+#####MAKE A FUNCTION TO MAKE MULTIVARIABLE MODELS FOR EACH DRUG
+
+library(svMisc) # for progress bar
+
+#data = data frame
+#var = variables for x 
+#y_names = columns names for y variables to test
+#seed = set.seed
+#model = caret model as 'model' ex.'glmnet'
+#train_method = method for trControl. ex. 'cv', 'boot632'
+#number = number of folds/bootstraps
+
+multivariate_drug_efficacy = function(data, var, y_names, seed, model_type, train_method, number) {
+  
+df = as.data.frame(data)
+var = var
+number=number
+model_type = model_type
+train_method = train_method
+model_list = list()
+y_names=y_names
+rsq_df = NULL
+coefficient = NULL
+seed=seed
+
+####Loop
+foreach(i = 1:ncol(df[,y_names])) %do%  {
+set.seed(seed)
+subset_df = na.omit(df[,c(var, y_names[i])])
+x = subset_df[,c(var), drop=FALSE]
+y = subset_df[,y_names[i]]
+model = caret::train(x,as.numeric(y),model_type,trControl=trainControl(method=train_method,number=number))
+model_list[[paste(colnames(df[,y_names])[i])]] = model
+best_metrics = getTrainPerf(model)
+rsq_df = rbind(rsq_df, data.frame(best_metrics))
+
+if (model_type == 'glmnet') {
+coef_df = coef(model$finalModel,model$finalModel$lambdaOpt)
+coef_df <- t(data.frame(coef_df = coef_df[,1]))
+coefficient = rbind(coefficient, data.frame(coef_df))
+}
+  else {coef_df = model$finalModel$coefficients
+coef_df = t(data.frame(coef_df = coef_df))
+coefficient = rbind(coefficient, data.frame(coef_df))
+}
+####progress bar
+progress(i, length(y_names))
+  Sys.sleep(0.02)
+  if (i == length(y_names)) message("Done!")
+#End Loop 
+}
+####End function
+row.names(rsq_df) = colnames(df[,y_names])
+if (model_type == 'glmnet') {
+  row.names(coefficient) = colnames(df[,y_names])
+  return(list(model_list=model_list,rsq_df=rsq_df,coefficient=coefficient))
+}
+else row.names(coefficient) = colnames(df[,y_names])
+  return(list(model_list=model_list,rsq_df=rsq_df,coefficient=coefficient))
+}
+
+##############PARALLEL PROCESSING#######
+
+#Will set up to use 2 cores 
+n.cores = 3
+
+my.cluster = parallel::makeCluster(n.cores)
+doParallel::registerDoParallel(my.cluster)
+foreach::getDoParRegistered()
+
+n.cores = parallel::detectCores() - 1
+my.cluster = parallel::makeCluster(n.cores)
+doParallel::registerDoParallel(my.cluster)
+foreach::getDoParRegistered()
+
+
+multivariate_drug_efficacy = function(data, var, y_names, seed, model_type, train_method, number) {
+  
+df = as.data.frame(data)
+var = var
+number=number
+model_type = model_type
+train_method = train_method
+model_list = list()
+y_names=y_names
+rsq_df = NULL
+coefficient = NULL
+seed=seed
+
+####Loop
+foreach(i = 1:ncol(df[,y_names])) %do%  {
+set.seed(seed)
+subset_df = na.omit(df[,c(var, y_names[i])])
+x = subset_df[,c(var), drop=FALSE]
+y = subset_df[,y_names[i]]
+model = caret::train(x,as.numeric(y),model_type,trControl=trainControl(method=train_method,number=number, allowParallel = TRUE))
+model_list[[paste(colnames(df[,y_names])[i])]] = model
+best_metrics = getTrainPerf(model)
+rsq_df = rbind(rsq_df, data.frame(best_metrics))
+
+if (model_type == 'glmnet') {
+coef_df = coef(model$finalModel,model$finalModel$lambdaOpt)
+coef_df <- t(data.frame(coef_df = coef_df[,1]))
+coefficient = rbind(coefficient, data.frame(coef_df))
+}
+  else {coef_df = model$finalModel$coefficients
+coef_df = t(data.frame(coef_df = coef_df))
+coefficient = rbind(coefficient, data.frame(coef_df))
+}
+####progress bar
+progress(i, length(y_names))
+  Sys.sleep(0.02)
+  if (i == length(y_names)) message("Done!")
+#End Loop 
+}
+####End function
+row.names(rsq_df) = colnames(df[,y_names])
+if (model_type == 'glmnet') {
+  row.names(coefficient) = colnames(df[,y_names])
+  return(list(model_list=model_list,rsq_df=rsq_df,coefficient=coefficient))
+}
+else row.names(coefficient) = colnames(df[,y_names])
+  return(list(model_list=model_list,rsq_df=rsq_df,coefficient=coefficient))
+}
+
+##################################################################
+###########SANGER elasticnet models##############################
+##################################################################
+sanger_elasticnet_allvars_boot = multivariate_drug_efficacy(
+                            data = sanger_drug_AUC,
+                            var = c("STAD_CIN" , "STAD_MSI" , "STAD_GS", "STAD_EBV","MSS_TP53neg" , "MSS_TP53pos", "EMT", "MSI", "High_cal"),
+                            y_names=colnames(sanger_drug_AUC[,c(40:154)]) ,
+                            seed = 99,
+                            model_type = 'glmnet',
+                            train_method = 'boot632',
+                            number=1000)
+
+
+sanger_elasticnet_tcga_boot = multivariate_drug_efficacy(
+                            data = sanger_drug_AUC,
+                            var = c("STAD_CIN" , "STAD_MSI" , "STAD_GS", "STAD_EBV"),
+                            y_names=colnames(sanger_drug_AUC[,c(40:154)]) ,
+                            seed = 99,
+                            model_type = 'glmnet',
+                            train_method = 'boot632',
+                            number=1000)
+
+
+sanger_elasticnet_acrg_boot = multivariate_drug_efficacy(
+                            data = sanger_drug_AUC,
+                            var = c("MSS_TP53neg" , "MSS_TP53pos", "EMT", "MSI"),
+                            y_names=colnames(sanger_drug_AUC[,c(40:154)]) ,
+                            seed = 99,
+                            model_type = 'glmnet',
+                            train_method = 'boot632',
+                            number=1000)
+
+##########SANGER linear models##########
+
+sanger_glm_allvars_boot = multivariate_drug_efficacy(
+                            data = sanger_drug_AUC,
+                            var = c("STAD_CIN" , "STAD_MSI" , "STAD_GS", "STAD_EBV","MSS_TP53neg" , "MSS_TP53pos", "EMT", "MSI", "High_cal"),
+                            y_names=colnames(sanger_drug_AUC[,c(40:154)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+
+sanger_glm_boot_stad_gs = multivariate_drug_efficacy(
+                            data = sanger_drug_AUC,
+                            var = "STAD_GS",
+                            y_names=colnames(sanger_drug_AUC[,c(40:154)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+sanger_glm_boot_stad_msi = multivariate_drug_efficacy(
+                            data = sanger_drug_AUC,
+                            var = "STAD_MSI",
+                            y_names=colnames(sanger_drug_AUC[,c(40:154)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+sanger_glm_boot_stad_cin = multivariate_drug_efficacy(
+                            data = sanger_drug_AUC,
+                            var = "STAD_CIN",
+                            y_names=colnames(sanger_drug_AUC[,c(40:154)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+sanger_glm_boot_stad_EBV = multivariate_drug_efficacy(
+                            data = sanger_drug_AUC,
+                            var = "STAD_EBV",
+                            y_names=colnames(sanger_drug_AUC[,c(40:154)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+sanger_glm_boot_high_cal = multivariate_drug_efficacy(
+                            data = sanger_drug_AUC,
+                            var = "High_cal",
+                            y_names=colnames(sanger_drug_AUC[,c(40:154)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+sanger_glm_boot_acrg_msi = multivariate_drug_efficacy(
+                            data = sanger_drug_AUC,
+                            var = "MSI",
+                            y_names=colnames(sanger_drug_AUC[,c(40:154)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+sanger_glm_boot_acrg_emt = multivariate_drug_efficacy(
+                            data = sanger_drug_AUC,
+                            var = "EMT",
+                            y_names=colnames(sanger_drug_AUC[,c(40:154)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+sanger_glm_boot_acrg_tp53neg = multivariate_drug_efficacy(
+                            data = sanger_drug_AUC,
+                            var = "MSS_TP53neg",
+                            y_names=colnames(sanger_drug_AUC[,c(40:154)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+sanger_glm_boot_acrg_tp53pos = multivariate_drug_efficacy(
+                            data = sanger_drug_AUC,
+                            var = "MSS_TP53pos",
+                            y_names=colnames(sanger_drug_AUC[,c(40:154)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+
+sanger_glm_boot_tcga = multivariate_drug_efficacy(
+                            data = sanger_drug_AUC,
+                            var = c("STAD_CIN" , "STAD_MSI" , "STAD_GS", "STAD_EBV"),
+                            y_names=colnames(sanger_drug_AUC[,c(40:154)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+
+
+sanger_glm_boot_acrg = multivariate_drug_efficacy(
+                            data = sanger_drug_AUC,
+                            var = c("MSS_TP53neg" , "MSS_TP53pos", "EMT", "MSI"),
+                            y_names=colnames(sanger_drug_AUC[,c(40:154)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+##################################################################
+###########PRISM elasticnet models################################
+##################################################################
+
+prism_elasticnet_allvars_boot = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = c("STAD_CIN" , "STAD_MSI" , "STAD_GS", "STAD_EBV","MSS_TP53neg" , "MSS_TP53pos", "EMT", "MSI", "High_cal"),
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glmnet',
+                            train_method = 'boot632',
+                            number=1000)
+
+prism_elasticnet_tcga_boot = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = c("STAD_CIN" , "STAD_MSI" , "STAD_GS", "STAD_EBV"),
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glmnet',
+                            train_method = 'boot632',
+                            number=1000)
+
+prism_elasticnet_acrg_boot = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = c("MSS_TP53neg" , "MSS_TP53pos", "EMT", "MSI"),
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glmnet',
+                            train_method = 'boot632',
+                            number=1000)
+
+##########Prismlinear models##########
+
+prism_glm_allvars_boot = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = c("STAD_CIN" , "STAD_MSI" , "STAD_GS", "STAD_EBV","MSS_TP53neg" , "MSS_TP53pos", "EMT", "MSI", "High_cal"),
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+
+prism_glm_boot_stad_gs = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = "STAD_GS",
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+prism_glm_boot_stad_msi = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = "STAD_MSI",
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+prism_glm_boot_stad_cin = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = "STAD_CIN",
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+prism_glm_boot_stad_EBV = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = "STAD_EBV",
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+prism_glm_boot_high_cal = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = "High_cal",
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+
+
+prism_glm_boot_tcga = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = c("STAD_CIN" , "STAD_MSI" , "STAD_GS", "STAD_EBV"),
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+
+
+prism_glm_boot_acrg = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = c("MSS_TP53neg" , "MSS_TP53pos", "EMT", "MSI"),
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+
+prism_glm_boot_acrg_msi = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = "MSI",
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+prism_glm_boot_acrg_emt = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = "EMT",
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+prism_glm_boot_acrg_tp53neg = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = "MSS_TP53neg",
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+prism_glm_boot_acrg_tp53pos = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = "MSS_TP53pos",
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+
+#####SHUT off PARALLEL####
+
+#See this for parallelism in caret https://rstudio-pubs-static.s3.amazonaws.com/411592_ec6dc9798a374fc296a08a0e9a9b6b9a.html 
+
+parallel::stopCluster(cl = my.cluster)
+remove(my.cluster)
+registerDoSEQ()
+
+#if used amp_up_models()
+parallel::stopCluster(cl = cluster)
+remove(cluster)
+foreach::registerDoSEQ()
+########
+
+
+#######
+sanger_glm_boot_stad_EBV$rsq_df$model= "uni_stad_ebv"
+sanger_glm_boot_stad_gs$rsq_df$model= "uni_stad_gs"
+sanger_glm_boot_stad_cin$rsq_df$model= "uni_stad_cin"
+sanger_glm_boot_stad_msi$rsq_df$model= "uni_stad_msi"
+sanger_glm_boot_high_cal$rsq_df$model= "uni_high_cal"
+sanger_glm_boot_acrg_msi$rsq_df$model= "uni_msi"
+sanger_glm_boot_acrg_emt$rsq_df$model= "uni_emt"
+sanger_glm_boot_acrg_tp53neg$rsq_df$model= "uni_tp53neg"
+sanger_glm_boot_acrg_tp53pos$rsq_df$model= "uni_tp53pos"
+sanger_glm_allvars_boot$rsq_df$model= "glm_allvars"
+sanger_glm_boot_acrg$rsq_df$model= "glm_acrg"
+sanger_glm_boot_tcga$rsq_df$model= "glm_tcga"
+sanger_elasticnet_allvars_boot$rsq_df$model= "elastic_allvars"
+sanger_elasticnet_acrg_boot$rsq_df$model= "elastic_acrg"
+sanger_elasticnet_tcga_boot$rsq_df$model= "elastic_tcga"
+
+sanger_glm_boot_stad_EBV$rsq_df$experiment= "sanger"
+sanger_glm_boot_stad_gs$rsq_df$experiment= "sanger"
+sanger_glm_boot_stad_cin$rsq_df$experiment= "sanger"
+sanger_glm_boot_stad_msi$rsq_df$experiment= "sanger"
+sanger_glm_boot_acrg_msi$rsq_df$experiment= "sanger"
+sanger_glm_boot_acrg_emt$rsq_df$experiment= "sanger"
+sanger_glm_boot_acrg_tp53neg$rsq_df$experiment= "sanger"
+sanger_glm_boot_acrg_tp53pos$rsq_df$experiment= "sanger"
+sanger_glm_boot_high_cal$rsq_df$experiment= "sanger"
+sanger_glm_allvars_boot$rsq_df$experiment= "sanger"
+sanger_glm_boot_acrg$rsq_df$experiment= "sanger"
+sanger_glm_boot_tcga$rsq_df$experiment= "sanger"
+sanger_elasticnet_allvars_boot$rsq_df$experiment= "sanger"
+sanger_elasticnet_acrg_boot$rsq_df$experiment= "sanger"
+sanger_elasticnet_tcga_boot$rsq_df$experiment= "sanger"
+
+prism_elasticnet_allvars_boot$rsq_df$model = "elastic_prism_allvars"
+prism_elasticnet_tcga_boot$rsq_df$model = "elastic_prism_tcga"
+prism_elasticnet_acrg_boot$rsq_df$model = "elastic_prism_acrg"
+prism_glm_allvars_boot$rsq_df$model = "glm_prism_allvars"
+prism_glm_boot_stad_gs$rsq_df$model = "uni_prism_stad_gs"
+prism_glm_boot_stad_msi$rsq_df$model = "uni_prism_stad_msi"
+prism_glm_boot_stad_cin$rsq_df$model = "uni_prism_stad_cin"
+prism_glm_boot_stad_EBV$rsq_df$model = "uni_prism_stad_ebv"
+prism_glm_boot_high_cal$rsq_df$model = "uni_prism_high_cal"
+prism_glm_boot_tcga$rsq_df$model = "glm_prism_tcga"
+
+prism_elasticnet_allvars_boot$rsq_df$experiment = "prism"
+prism_elasticnet_tcga_boot$rsq_df$experiment = "prism"
+prism_elasticnet_acrg_boot$rsq_df$experiment = "prism"
+prism_glm_allvars_boot$rsq_df$experiment = "prism"
+prism_glm_boot_stad_gs$rsq_df$experiment = "prism"
+prism_glm_boot_stad_msi$rsq_df$experiment = "prism"
+prism_glm_boot_stad_cin$rsq_df$experiment = "prism"
+prism_glm_boot_stad_EBV$rsq_df$experiment = "prism"
+prism_glm_boot_high_cal$rsq_df$experiment = "prism"
+prism_glm_boot_tcga$rsq_df$experiment = "prism"
+
+rsquared_long = do.call(rbind, list(sanger_glm_allvars_boot$rsq_df,
+      sanger_glm_boot_high_cal$rsq_df,
+      sanger_glm_boot_stad_msi$rsq_df,
+      sanger_glm_boot_stad_cin$rsq_df,
+      sanger_glm_boot_stad_gs$rsq_df,
+      sanger_glm_boot_stad_EBV$rsq_df,
+      sanger_glm_boot_acrg_msi$rsq_df , 
+      sanger_glm_boot_acrg_emt$rsq_df , 
+      sanger_glm_boot_acrg_tp53neg$rsq_df, 
+      sanger_glm_boot_acrg_tp53pos$rsq_df,
+      prism_elasticnet_allvars_boot$rsq_df,
+      prism_elasticnet_tcga_boot$rsq_df, 
+      prism_elasticnet_acrg_boot$rsq_df,
+      prism_glm_allvars_boot$rsq_df,
+      sanger_elasticnet_allvars_boot$rsq_df,
+      sanger_elasticnet_acrg_boot$rsq_df,
+      sanger_elasticnet_tcga_boot$rsq_df,
+      sanger_glm_boot_acrg$rsq_df,
+      sanger_glm_boot_tcga$rsq_df,
+      prism_glm_boot_stad_gs$rsq_df,
+      prism_glm_boot_stad_msi$rsq_df,
+      prism_glm_boot_stad_cin$rsq_df,
+      prism_glm_boot_stad_EBV$rsq_df,
+      prism_glm_boot_high_cal$rsq_dfl,
+      prism_glm_boot_tcga$rsq_df))
+
+
+rsquared_long$ratio = rsquared_long$TrainRsquared/rsquared_long$TrainRMSE
+```
+#Interim save models 
+```{r}
+write.csv(rsquared_long,"rsquared_long.csv")
+```
+#Compile additional models
+```{r}
+sanger_elasticnet_allvars_boot = cheese_sanger
+
+rsquared_long <- read.csv("~/Documents/R projects/TCGA Draft 2/rsquared_long.csv", row.names=1, stringsAsFactors=TRUE)
+
+prism_glm_boot_acrg_tp53neg$rsq_df$model = "uni_prism_tp53neg"
+prism_glm_boot_acrg_tp53pos$rsq_df$model = "uni_prism_tp53pos"
+prism_glm_boot_acrg_emt$rsq_df$model = "uni_prism_emt"
+prism_glm_boot_acrg_msi$rsq_df$model = "uni_prism_msi"
+prism_glm_boot_acrg$rsq_df$model = "glm_prism_acrg"
+
+prism_glm_boot_acrg_tp53neg$rsq_df$experiment = "prism"
+prism_glm_boot_acrg_tp53pos$rsq_df$experiment = "prism"
+prism_glm_boot_acrg_emt$rsq_df$experiment = "prism"
+prism_glm_boot_acrg_msi$rsq_df$experiment = "prism"
+prism_glm_boot_acrg$rsq_df$experiment = "prism"
+
+rsquared_secondary= rbind(prism_glm_boot_acrg_tp53neg$rsq_df,
+                          prism_glm_boot_acrg_tp53pos$rsq_df,
+                          prism_glm_boot_acrg_emt$rsq_df,
+                          prism_glm_boot_acrg_msi$rsq_df,
+                          prism_glm_boot_acrg$rsq_df)
+
+
+rsquared_secondary$ratio = rsquared_secondary$TrainRsquared/rsquared_secondary$TrainRMSE
+
+#Add last few models
+
+rsquared_long = rbind(rsquared_long, 
+                      rsquared_secondary)
+
+##########
+
+rsquared_long = tibble::rownames_to_column(rsquared_long, "drug_id")
+
+rsquared_long_sanger = rsquared_long %>% filter(experiment=="sanger")
+rsquared_long_prism = rsquared_long %>% filter(experiment=="prism")
+
+
+rsquared_long_sanger$drug_name = gsub("^(.*)[.].*", "\\1", rsquared_long_sanger$drug_id) 
+rsquared_long_sanger$drug_name = str_sub(rsquared_long_sanger$drug_name, start= -4, end=-1)
+rsquared_long_sanger = merge(drug_types,rsquared_long_sanger, by.x = "DRUG_ID", by.y = "drug_name"  )
+rsquared_long_sanger$TARGET_PATHWAY =factor(rsquared_long_sanger$TARGET_PATHWAY)
+rsquared_long_sanger$model= factor(rsquared_long_sanger$model)
+
+rsquared_long_prism$drug_name = gsub(".BRD..*","",rsquared_long_prism$drug_id)
+rsquared_long_prism$drug_name = str_sub(rsquared_long_prism$drug_name, end=-2)
+rsquared_long_prism$drug_name =  gsub('\\.', '-', rsquared_long_prism$drug_name)
+
+rsquared_long_prism = merge(rsquared_long_prism,prism_drug_id, by.x = "drug_name", by.y="pert_iname" )
+rsquared_long_prism$moa =factor(rsquared_long_prism$moa)
+rsquared_long_prism$model= factor(rsquared_long_prism$model)
+
+
+rsquared_long_prism %>% 
+ggplot(aes(x = model, y = ratio)) + geom_boxplot() + stat_compare_means() 
+#Dunn test
+prism_dunn = rsquared_long_prism %>% FSA::dunnTest(ratio~model, data = ., method="bh")
+prism_dunn$res$sig = cut(prism_dunn$res$P.unadj, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+prism_dunn$res$sig.adjust = cut(prism_dunn$res$P.adj, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+View(prism_dunn[["res"]])
+#effect size
+rsquared_long_prism %>% rstatix::kruskal_effsize(ratio~model, nboot=1000, ci=TRUE)
+#wilcox effect size to reference elastic allvars
+rsquared_long_prism %>% 
+  rstatix::wilcox_effsize(ratio ~ model, ref.group="elastic_prism_allvars")
+
+
+rsquared_long_prism %>%
+   filter(model=="elastic_prism_allvars") %>%
+   group_by(moa) %>% 
+   filter(n() > 3) %>%
+ggplot(aes(x=TrainRsquared, y=reorder(moa, -TrainRsquared))) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3) + stat_compare_means()
+
+
+#################################
+rsquared_long_sanger %>% 
+ggplot(aes(x = model, y = ratio)) + geom_boxplot() + stat_compare_means() 
+#Dunn for sanger
+sanger_dunn = rsquared_long_sanger %>% FSA::dunnTest(ratio~model, data = ., method="bh")
+sanger_dunn$res$sig = cut(sanger_dunn$res$P.unadj, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+sanger_dunn$res$sig.adjust = cut(sanger_dunn$res$P.adj, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+View(sanger_dunn[["res"]])
+
+rsquared_long_sanger %>%
+   filter(model=="elastic_allvars") %>%
+   group_by(TARGET_PATHWAY) %>% 
+   filter(n() > 3) %>%
+ggplot(aes(x=TrainRsquared, y=reorder(TARGET_PATHWAY, -TrainRsquared))) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3) + stat_compare_means()
+
+
+
+
+sanger_coef = sanger_elasticnet_allvars_boot$coefficient
+sanger_coef = tibble::rownames_to_column(sanger_coef, "drug_id")
+
+merge_df = rsquared_long_sanger %>% filter(model=="elastic_allvars")
+merge_df  = dplyr::select(merge_df, -c("drug_id"))
+sanger_coef$DRUG_ID = str_sub(sanger_coef$drug_id, start= -5, end=-2)
+sanger_coef = merge(sanger_coef,merge_df, by.x = "DRUG_ID", by.y = "DRUG_ID")
+
+sanger_coef_long = tidyr::gather(sanger_coef, subtype, coefficient, X.Intercept.:High_cal )
+
+sanger_coef_long%>% filter(!subtype=="X.Intercept.") %>%
+ggplot(aes(x=subtype, y=coefficient)) +stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3) + stat_compare_means()
+
+
+#Absolute value varImp (coefficients)
+sanger_coef_long%>% filter(!subtype=="X.Intercept.") %>%
+ggplot(aes(x=subtype, y=abs(coefficient))) + geom_bar(stat="identity")
+
+sanger_coef_long%>% filter(!subtype=="X.Intercept.") %>%
+ggplot(aes(x=subtype, y=(coefficient))) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3)
+#univariable correlations example - farily similar rank but different magnitudes between. 
+sanger_corr_df%>%  ggplot(aes(x=row, y=abs(cor))) + geom_bar(stat="identity")
+
+
+
+sanger_coef_long %>%
+   filter(TARGET_PATHWAY=="PI3K/MTOR signaling") %>%
+   filter(!subtype=="X.Intercept.") %>%
+ggplot(aes(x=coefficient, y=reorder(subtype, -coefficient))) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3) + stat_compare_means() 
+
+
+sanger_coef_long %>%
+   filter(TARGET_PATHWAY=="Cell cycle") %>%
+   filter(!subtype=="X.Intercept.") %>%
+ggplot(aes(x=coefficient, y=reorder(subtype, -coefficient))) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3) + stat_compare_means() 
+
+
+
+
+prism_coef = prism_elasticnet_allvars_boot$coefficient
+prism_coef = tibble::rownames_to_column(prism_coef, "drug_id")
+
+
+###Essentially... what we find here is some intriguing signals. There are some cell lines left out that would be helpful to include in additional experiments... for example STAD_EBV of 0.7 was left out of sanger.
+
+```
+```{r}
+
+ggplot(rsquared_long, aes(x = TrainRMSE, y = TrainRsquared)) + geom_point() + stat_cor(method="spearman") + geom_smooth(method="gam") + facet_wrap(~model, scales="free")
+
+
+ggplot(rsquared_long, aes(x = model, y = TrainRsquared)) + geom_boxplot() + stat_compare_means()
+
+rsquared_long %>% filter(experiment=="sanger") %>%
+pairwise.wilcox.test(TrainRMSE, model,data=., p.adj = "BH")
+
+pairwise.wilcox.test(rsquared_long[rsquared_long$experiment=="sanger",]$TrainRMSE, rsquared_long[rsquared_long$experiment=="sanger",]$model,data=., p.adj = "BH")
+pairwise.wilcox.test(rsquared_long[rsquared_long$experiment=="sanger",]$TrainRsquared, rsquared_long[rsquared_long$experiment=="sanger",]$model,data=., p.adj = "BH")
+
+
+ggplot(rsquared_long, aes(x = model, y = TrainRMSE)) + geom_boxplot() + stat_compare_means() + ylim(0,2.5)
+ggplot(rsquared_long, aes(x = model, y = TrainMAE)) + geom_boxplot() + stat_compare_means() + ylim(0,2.5)
+
+rsquared_long %>% filter(experiment=="sanger") %>%
+ggplot(aes(x = model, y = TrainRsquared/TrainRMSE)) + geom_boxplot() + stat_compare_means() 
+rsquared_long %>% filter(experiment=="sanger") %>%
+FSA::dunnTest(TrainRsquared/TrainRMSE~model, data = ., method="bh")
+
+
+rsquared_long %>% filter(experiment=="sanger") %>%
+ggplot(aes(x = model, y = TrainRsquared/TrainRMSE)) + geom_point() + stat_compare_means() +
+  geom_point(inherit.aes = FALSE, data= df, aes(x = rmse, y = ratio, colour=rsq)) + geom_line()
+
+
+rsquared_long %>% filter(experiment=="prism") %>%
+ggplot(aes(x = model, y = TrainRsquared/TrainRMSE)) + geom_boxplot() + stat_compare_means() 
+rsquared_long %>% filter(experiment=="prism") %>%
+FSA::dunnTest(TrainRsquared/TrainRMSE~model, data = ., method="bh")
+
+rsquared_long %>% filter(experiment=="prism") %>%
+ggplot(aes(x = model, y = TrainRsquared/TrainRMSE)) + geom_point() 
+
+
+ggplot(rsquared_long, aes(x = TrainRMSE, y = TrainRsquared/TrainRMSE)) + geom_point() +geom_line(inherit.aes = FALSE, data= df, aes(x = rmse, y = ratio, colour=rsq)) +  facet_wrap(~model, scales="free") 
+
+rsquared_long %>% filter(model=="glm_prism_allvars") %>%
+ggplot( aes(x = TrainRMSE, y = TrainRsquared/TrainRMSE)) + geom_point() +geom_line(inherit.aes = FALSE, data= df, aes(x = rmse, y = ratio, colour=rsq)) + ylim(0,10)
+
+rsquared_long %>% filter(model=="glm_prism_allvars") %>%
+ggplot(aes(x = TrainRsquared/TrainRMSE)) + geom_histogram()
+
+###SIMULATION OF PROPOSED FRAMEWORK 
+x = c(rep(seq(0.01, 10, by=0.001),4))
+y = c(rep(1, length(x)/4),rep(0.8, length(x)/4),rep(0.5, length(x)/4),rep(0.2, length(x)/4) )
+df <- data.frame(rmse  = x,
+                "rsq" = y)
+df$ratio = df$rsq/df$rmse
+df$rsq = as.factor(df$rsq)
+ggplot(df, aes(x = rmse, y = ratio, colour=rsq)) + geom_line() +coord_cartesian(xlim=c(0, 2), ylim=c(0,3))
+ggplot(df, aes(x = ratio, colour=rsq)) + geom_histogram(alpha=0.5) +coord_cartesian(xlim=c(0, 10))
+
+
+rsquared_long %>% 
+  filter(model=="elastic_prism_allvars" |model=="elastic_prism_tcga") %>%
+  ggplot(aes(x = model, y = TrainRsquared)) + geom_boxplot() + stat_compare_means() 
+rsquared_long %>% 
+  filter(model=="elastic_prism_allvars" |model=="elastic_prism_tcga") %>%
+  ggplot(aes(x = model, y = TrainRMSE)) + geom_boxplot() + stat_compare_means()
+
+rsquared_long %>% 
+  filter(model=="elastic_prism_allvars" |model=="elastic_prism_acrg" |model=="elastic_prism_tcga") %>%
+  ggplot(aes(x = model, y = TrainRMSE)) + geom_boxplot() + stat_compare_means() 
+
+rsquared_long %>% 
+  filter(model=="elastic_prism_allvars" |model=="elastic_prism_acrg" |model=="elastic_prism_tcga") %>% 
+  FSA::dunnTest(TrainRMSE~model, data=.)
+
+rsquared_long %>% 
+  filter(model=="elastic_prism_allvars" |model=="elastic_prism_acrg" |model=="elastic_prism_tcga") %>% 
+rstatix::kruskal_effsize(TrainRMSE~model, nboot=1000, ci=TRUE)
+###########PRISM elasticnet models#################
+
+
+prism_elasticnet_allvars_boot = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = c("STAD_CIN" , "STAD_MSI" , "STAD_GS", "STAD_EBV","MSS_TP53neg" , "MSS_TP53pos", "EMT", "MSI", "High_cal"),
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glmnet',
+                            train_method = 'boot632',
+                            number=1000)
+
+prism_elasticnet_tcga_boot = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = c("STAD_CIN" , "STAD_MSI" , "STAD_GS", "STAD_EBV"),
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glmnet',
+                            train_method = 'boot632',
+                            number=1000)
+
+prism_elasticnet_acrg_boot = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = c("MSS_TP53neg" , "MSS_TP53pos", "EMT", "MSI"),
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glmnet',
+                            train_method = 'boot632',
+                            number=1000)
+
+##########Prismlinear models##########
+
+prism_glm_allvars_boot = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = c("STAD_CIN" , "STAD_MSI" , "STAD_GS", "STAD_EBV","MSS_TP53neg" , "MSS_TP53pos", "EMT", "MSI", "High_cal"),
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+
+prism_glm_boot_stad_gs = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = "STAD_GS",
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+prism_glm_boot_stad_msi = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = "STAD_MSI",
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+prism_glm_boot_stad_cin = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = "STAD_CIN",
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+prism_glm_boot_stad_EBV = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = "STAD_EBV",
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+prism_glm_boot_high_cal = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = "High_cal",
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+
+
+prism_glm_boot_tcga = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = c("STAD_CIN" , "STAD_MSI" , "STAD_GS", "STAD_EBV"),
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+
+
+prism_glm_boot_acrg = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = c("MSS_TP53neg" , "MSS_TP53pos", "EMT", "MSI"),
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+
+prism_glm_boot_acrg_msi = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = "MSI",
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+prism_glm_boot_acrg_emt = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = "EMT",
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+prism_glm_boot_acrg_tp53neg = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = "MSS_TP53neg",
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+prism_glm_boot_acrg_tp53pos = multivariate_drug_efficacy(
+                            data = prism_drug_AUC,
+                            var = "MSS_TP53pos",
+                            y_names=colnames(prism_drug_AUC[,c(38:652)]) ,
+                            seed = 99,
+                            model_type = 'glm',
+                            train_method = 'boot632',
+                            number=1000)
+
+#####SHUT off PARALLEL####
+
+#See this for parallelism in caret https://rstudio-pubs-static.s3.amazonaws.com/411592_ec6dc9798a374fc296a08a0e9a9b6b9a.html 
+
+parallel::stopCluster(cl = my.cluster)
+remove(my.cluster)
+registerDoSEQ()
+
+#if used amp_up_models()
+parallel::stopCluster(cl = cluster)
+remove(cluster)
+foreach::registerDoSEQ()
+########
+
+
+rice = sanger_drug_AUC
+pred = predict(sanger_elasticnet_allvars_boot$model_list$Pyridostatin..GDSC2.2044.,sanger_drug_AUC, "raw")
+rice$pred = pred
+postResample(pred = pred, obs = rice$Pyridostatin..GDSC2.2044.)
+ggplot(rice, aes(x=Pyridostatin..GDSC2.2044., y = pred, colour=STAD_MSI, fill=MSS_TP53neg)) + geom_point(shape=21, size=4, stroke=2) +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + xlim(0, 1) + ylim(0, 1)
+
+```
+#BIG ISSUES DISCUSSED HERE
+With the multivariable analysis using AUC as a predictor we can have good model performance with greater AUC due to the points being so close together. So ultimately, the multivariate model analysis I completed does not work perfectly yet and is not ready for thesis work or publication. Thus we will rely on the univariable analysis using correlations and the pearson correlation value as an effect. For simplicity we will only include the SANGER drug set. 
+```{r}
+
+#######
+
+rice = sanger_drug_AUC
+pred = predict(sanger_elasticnet_allvars_boot$model_list$dactinomycin..GDSC2.1811.,sanger_drug_AUC)
+rice$pred = pred
+postResample(pred = pred, obs = rice$dactinomycin..GDSC2.1811.)
+ggplot(rice, aes(x=dactinomycin..GDSC2.1811., y = pred, colour=STAD_MSI, fill=MSS_TP53neg)) + geom_point(shape=21, size=4, stroke=2) +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + xlim(0, 1) + ylim(0, 1)
+
+#make function to make subsetting and searching easy. provide list name as list and string for name
+search_list = function(list, name) list[grepl(name, names(list))]
+
+#Example
+search_list(list = sanger_elasticnet$model_list, name="camptothecin")
+
+model_of_interest = search_list(list = sanger_elasticnet$model_list, name="camptothecin")
+
+
+
+
+```
+#Check correlation of IC50 and AUC 
+```{r}
+check_drugs = merge(sanger_drug_IC50,sanger_drug_AUC, by = "cell_line_name")
+
+ggplot(check_drugs, aes(x=vorinostat..GDSC1.1012..x, y = vorinostat..GDSC1.1012..y)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE)
+
+ggplot(check_drugs, aes(x=docetaxel..GDSC1.1007..x, y = docetaxel..GDSC1.1007..y)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE)
+
+
+ggplot(check_drugs, aes(x=AZD7762..GDSC1.1022..x, y = AZD7762..GDSC1.1022..y)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE)
+
+```
+#/////////PRISM Drug sensitivity secondary screen
+```{r}
+prism_drug_AUC <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/Drug_sensitivity_AUC_(PRISM_Repurposing_Secondary_Screen)_19Q4_subsetted_NAsdropped.csv", row.names=1, stringsAsFactors=TRUE)
+
+prism_drug_AUC = tibble::rownames_to_column(prism_drug_AUC, "sample_id")
+
+prism_drug_AUC= merge(combo_data, prism_drug_AUC, by="sample_id")
+
+
+prism_drug_id <- read.delim("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/repurposing_drugs_20200324.txt", stringsAsFactors=TRUE)
+prism_drug_id = prism_drug_id[-c(1:8),]
+names(prism_drug_id) <- lapply(prism_drug_id[1, ], as.character)
+prism_drug_id <- prism_drug_id[-1,] 
+```
+###Correlation of main cyotoxic chemo. 
+```{r}
+prism_drug_AUC_base = dplyr::select(prism_drug_AUC, c("High_cal", "STAD_CIN","STAD_EBV","STAD_GS","STAD_MSI","MSS_TP53neg", "MSS_TP53pos","MSI","EMT","X5.fluorouracil..BRD.BRD.K24844714.001.24.5.","oxaliplatin..BRD.BRD.K78960041.001.05.7.", "cisplatin..BRD.BRD.K69172251.001.08.9.", "docetaxel..BRD.BRD.K30577245.001.05.0.", "paclitaxel..BRD.BRD.K62008436.001.23.9.", "epirubicin..BRD.BRD.K04548931.003.16.5.", "capecitabine..BRD.BRD.K61192372.001.08.9."))
+
+
+#####COR TEST BASE
+prism_base_corr = Hmisc::rcorr(as.matrix(prism_drug_AUC_base))
+
+flattenCorrMatrix <- function(cormat, pmat) {
+  ut <- upper.tri(cormat)
+  data.frame(
+    row = rownames(cormat)[row(cormat)[ut]],
+    column = rownames(cormat)[col(cormat)[ut]],
+    cor  =(cormat)[ut],
+    p = pmat[ut]
+    )
+}
+prism_base_corr_df = flattenCorrMatrix(prism_base_corr$r, prism_base_corr$P)
+prism_base_corr_df = prism_base_corr_df %>% filter(row== "High_cal" | row== "STAD_CIN"| row== "STAD_MSI"| row== "STAD_EBV"| row== "STAD_GS"| row== "MSI"| row== "EMT"| row== "MSS_TP53neg"| row== "MSS_TP53pos")
+prism_base_corr_df = prism_base_corr_df[-c(1:45),]
+prism_base_corr_df$p.adjust = p.adjust(prism_base_corr_df$p, method = "BH")
+prism_base_corr_df$sig = cut(prism_base_corr_df$p, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+prism_base_corr_df$sig.adjust = cut(prism_base_corr_df$p.adjust, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+#######
+
+library(ComplexHeatmap)
+set.seed(99)
+
+#heatmap matrix
+mat_prism = prism_base_corr[["r"]][-c(10:nrow(prism_base_corr[["r"]])), -c(1:9)]
+#Heatmap legend scale
+cols = brewer.pal(9, "RdBu")
+col_hm_prism=circlize::colorRamp2(seq(min(mat_prism), max(mat_prism), length = 9), colors = rev(cols))
+
+#boxplot colours
+x = apply(prism_drug_AUC_base[,c(10:16)], 2, FUN = median, na.rm=TRUE)
+y = column_order(heatmap_prism_base)
+x = as.data.frame(x)[y, ]
+
+map2color<-function(x,pal,limits=NULL){
+    if(is.null(limits)) limits=range(x)
+    pal[findInterval(x,seq(limits[1],limits[2],length.out=length(pal)+1), all.inside=TRUE)]
+}
+mypal <- colorRampPalette(brewer.pal(9, "Greens"))(50)
+col_box = map2color(x,mypal)
+scales::show_col(mypal)
+
+#heatmap annotation
+column_ha = HeatmapAnnotation(AUC = anno_boxplot(prism_drug_AUC_base[,c(10:16)], which = "col",gp = gpar(fill = "#7FC97F"), axis=TRUE,  height = unit(3, "cm")))
+
+
+heatmap_prism_base = ComplexHeatmap::pheatmap(mat_prism, 
+                col = col_hm_prism,
+                heatmap_legend_param = 
+                  list(at = c(-0.8,-0.4,0,0.4, 0.8),col_fun = col_hm_prism), 
+                name = " ",  
+                top_annotation = column_ha)
+
+heatmap_prism_base@top_annotation@anno_list[["AUC"]]@label = "Area Under the Curve"
+draw(heatmap_prism_base, padding = unit(c(2, 2, 2, 20), "mm"))
+
+decorate_annotation("AUC", {
+    grid.lines(c(0, 1), unit(c(1, 1, NA,0.9,0.9,NA,0.8, 0.8, NA,0.7,0.7,NA,0.6,0.6), "native"), gp = gpar(col = "darkgray", alpha=0.3))
+})
+
+#EXPORT
+svg(filename="heatmap_prism_base.svg", width=8, height=12)
+
+heatmap_prism_base = ComplexHeatmap::pheatmap(mat_prism, 
+                col = col_hm_prism,
+                heatmap_legend_param = 
+                  list(at = c(-0.8,-0.4,0,0.4, 0.8),col_fun = col_hm_prism), 
+                name = " ",  
+                top_annotation = column_ha)
+
+heatmap_prism_base@top_annotation@anno_list[["AUC"]]@label = "Area Under the Curve"
+draw(heatmap_prism_base, padding = unit(c(2, 2, 2, 20), "mm"))
+
+decorate_annotation("AUC", {
+    grid.lines(c(0, 1), unit(c(1, 1, NA,0.9,0.9,NA,0.8, 0.8, NA,0.7,0.7,NA,0.6,0.6), "native"), gp = gpar(col = "darkgray", alpha=0.3))
+})
+dev.off()
+
+
+#####
+
+###MASTER
+
+#heatmap matrix
+master_mat = cbind(mat,mat_prism)
+#Heatmap legend scale
+cols = brewer.pal(9, "RdBu")
+col_hm_master=circlize::colorRamp2(seq(min(master_mat), max(master_mat), length = 9), colors = rev(cols))
+
+
+#heatmap annotation
+a = sanger_drug_AUC_base[,c(10:15)]
+b = prism_drug_AUC_base[,c(10:16)]
+a$number <- row.names(a)
+b$number <- row.names(b)
+
+#merge data frames
+#"all = TRUE" will mean that NA values will be added whenever there is no match 
+annotation_master <- merge(a, b, by = "number", all = TRUE)
+annotation_master = annotation_master[,-1]
+
+column_ha = HeatmapAnnotation(AUC = anno_boxplot(annotation_master, which = "col",gp = gpar(fill = "#7FC97F"), axis=TRUE,  height = unit(3, "cm")))
+
+
+heatmap_master_base = ComplexHeatmap::pheatmap(master_mat, 
+                col = col_hm_master,
+                heatmap_legend_param = 
+                  list(at = c(-0.8,-0.4,0,0.4, 0.8),col_fun = col_hm_master), 
+                name = " ",  
+                top_annotation = column_ha)
+
+heatmap_master_base@top_annotation@anno_list[["AUC"]]@label = "Area Under the Curve"
+draw(heatmap_master_base, padding = unit(c(20, 2, 2, 20), "mm"))
+
+decorate_annotation("AUC", {
+    grid.lines(c(0, 1), unit(c(1, 1, NA,0.9,0.9,NA,0.8, 0.8, NA,0.7,0.7,NA,0.6,0.6), "native"), gp = gpar(col = "darkgray", alpha=0.3))
+})
+
+#Regardless, in the isolation of these common therapeutic regimens there is no significant correlations of subtype expression and drug efficacy. Given the small sample size this is an issue but is consistent with how we would theoretically imagine the effect of indiscriminate cytotoxic chemotherapy. 
+```
+###Comprehensive eval
+```{r}
+#Filter out drugs with greater than 25%  of cell lines missing
+prism_drug_AUC = prism_drug_AUC[lapply(prism_drug_AUC, function(x) sum(is.na(x)) / length(x) ) <= 0.25 ]
+
+
+prism_drug_AUC_cor = prism_drug_AUC[,-c(2:24)]
+prism_drug_AUC_cor = dplyr::select(prism_drug_AUC_cor, -c("TME_subtype_cal","TCGA_subtype","ACRG_subtype"))
+
+
+prism_drug_AUC_cor = prism_drug_AUC_cor[, which(colMeans(!is.na(prism_drug_AUC_cor)) > 0.4)] #Filterr out drugs with greater than 40% NA
+  
+cor_matt_prism_drug_AUC = cor((prism_drug_AUC_cor[,-1]),use="pairwise.complete.obs", method="pearson")
+cor_matt_prism_drug_AUC = cor_matt_prism_drug_AUC[-c(11:nrow(cor_matt_prism_drug_AUC)), -c(1:11)]  
+
+#####COR TEST
+prism_corr = Hmisc::rcorr(as.matrix(prism_drug_AUC_cor[,-1]))
+flattenCorrMatrix <- function(cormat, pmat) {
+  ut <- upper.tri(cormat)
+  data.frame(
+    row = rownames(cormat)[row(cormat)[ut]],
+    column = rownames(cormat)[col(cormat)[ut]],
+    cor  =(cormat)[ut],
+    p = pmat[ut]
+    )
+}
+prism_corr_df = flattenCorrMatrix(prism_corr$r, prism_corr$P)
+prism_corr_df = prism_corr_df %>% filter(row== "High_cal" | row== "Low_cal" | row== "STAD_CIN"| row== "STAD_MSI"| row== "STAD_EBV"| row== "STAD_GS"| row== "MSI"| row== "EMT"| row== "MSS_TP53neg"| row== "MSS_TP53pos")
+prism_corr_df = prism_corr_df[-c(1:45),]
+prism_corr_df$p.adjust = p.adjust(prism_corr_df$p, method = "BH")
+prism_corr_df$sig = cut(prism_corr_df$p, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+prism_corr_df$sig.adjust = cut(prism_corr_df$p.adjust, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+prism_corr_df$rsquared = abs(prism_corr_df$cor)^2
+#######
+
+
+table(is.na(cor_matt_prism_drug_AUC))
+giveNAs = which(is.na(as.matrix(cor_matt_prism_drug_AUC)),arr.ind=TRUE)
+head(giveNAs)
+cor_matt_prism_drug_AUC = cor_matt_prism_drug_AUC[, colSums(is.na(cor_matt_prism_drug_AUC)) != nrow(cor_matt_prism_drug_AUC)]
+table(is.na(cor_matt_prism_drug_AUC))
+
+
+pheatmap(cor_matt_prism_drug_AUC)
+
+check_prism = as.data.frame(t(cor_matt_prism_drug_AUC))
+check_prism = tibble::rownames_to_column(check_prism, "drug_name")  
+check_prism_long = tidyr::gather(check_prism, subtype, value, High_cal:EMT )
+
+
+check_prism_long$drug_id = gsub(".BRD..*","",check_prism_long$drug_name)
+check_prism_long$drug_id = str_sub(check_prism_long$drug_id, end=-2)
+check_prism_long$drug_id =  gsub('\\.', '-', check_prism_long$drug_id)
+
+check_prism_long = merge(check_prism_long,prism_drug_id, by.x = "drug_id", by.y="pert_iname" )
+check_prism_long$moa =factor(check_prism_long$moa)
+
+
+check_prism_long %>%
+   filter(subtype=="STAD_CIN") %>%
+   group_by(moa) %>% 
+   filter(n() > 3) %>%
+ggplot(aes(x=value, y=reorder(moa, -value))) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3) + stat_compare_means()
+
+
+t_test_prism = check_prism_long %>%
+   group_by(moa, subtype) %>% 
+   filter(n() > 3) %>% 
+   rstatix::t_test(value~1, mu = 0) 
+t_test_prism$p.adjust = p.adjust(t_test_prism$p, method="BH")
+t_test_prism$sig = cut(t_test_prism$p, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+t_test_prism$sig.adjust = cut(t_test_prism$p.adjust, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+
+
+wilcox_prism = check_prism_long %>%
+   group_by(moa, subtype) %>% 
+   filter(n() > 3) %>% 
+   rstatix::wilcox_test(value~1, mu = 0) 
+wilcox_prism$p.adjust = p.adjust(wilcox_prism$p, method="BH")
+wilcox_prism$sig = cut(wilcox_prism$p, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+wilcox_prism$sig.adjust = cut(wilcox_prism$p.adjust, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+
+
+effect_size_prism = check_prism_long %>%
+   group_by(moa,subtype) %>% 
+   filter(n() > 3) %>% 
+   rstatix::wilcox_effsize(value~1, mu = 0) 
+wilcox_prism$effect_size = effect_size_prism$effsize
+wilcox_prism$magnitude = effect_size_prism$magnitude
+wilcox_prism$log10p = -log10(wilcox_prism$p)
+plot(wilcox_prism$effect_size, wilcox_prism$log10p)
+
+###SIGNIFICANT after padjust is HDAC inhibitor, tubulin polymerization inhibitor,Aurora kinase inhibitor	,MEK inhibitor. mTOR inhibitor	,PI3K inhibitor	,topoisomerase inhibitor
+
+
+check_prism_long %>%
+   filter(moa=="PI3K inhibitor") %>%
+   filter(!subtype=="Low_cal") %>%
+    ggplot(aes(x=value, y = reorder(subtype,-value))) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3) 
+
+
+check_prism_long %>%
+   filter(moa=="MEK inhibitor") %>%
+   filter(!subtype=="Low_cal") %>%
+    ggplot(aes(x=value, y = reorder(subtype,-value))) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3) 
+
+
+check_prism_long %>%
+   filter(moa=="topoisomerase inhibitor") %>%
+   filter(!subtype=="Low_cal") %>%
+    ggplot(aes(x=value, y = reorder(subtype,-value))) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3) 
+
+
+check_prism_long %>%
+   filter(moa=="Aurora kinase inhibitor") %>%
+   filter(!subtype=="Low_cal") %>%
+    ggplot(aes(x=value, y = reorder(subtype,-value))) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3) 
+
+
+check_prism_long %>%
+   filter(moa=="Aurora kinase inhibitor") %>%
+   filter(!subtype=="Low_cal") %>%
+   ggplot(aes(x=subtype, y = value)) + geom_boxplot() +stat_compare_means() + geom_smooth(method="lm", se=FALSE, ) 
+
+check_prism_long %>%
+   filter(moa=="mTOR inhibitor") %>%
+   filter(!subtype=="High_cal") %>%
+   filter(!subtype=="Low_cal") %>%
+   ggplot(aes(x=subtype, y = value)) + geom_boxplot() +stat_compare_means() + geom_smooth(method="lm", se=FALSE, ) 
+
+cheese = check_prism_long %>%
+   filter(moa=="mTOR inhibitor") %>%
+   filter(!subtype=="High_cal") %>%
+   filter(!subtype=="Low_cal") %>%
+   FSA::dunnTest(value ~ subtype, data=., method="bh")
+
+
+
+check_prism_long %>%
+   filter(moa=="NFkB pathway inhibitor") %>%
+   filter(!subtype=="High_cal") %>%
+   filter(!subtype=="Low_cal") %>%
+   ggplot(aes(x=subtype, y = value)) + geom_boxplot() +stat_compare_means() + geom_smooth(method="lm", se=FALSE, ) 
+
+cheese = check_prism_long %>%
+   filter(moa=="NFkB pathway inhibitor") %>%
+   filter(!subtype=="High_cal") %>%
+   filter(!subtype=="Low_cal") %>%
+   FSA::dunnTest(value ~ subtype, data=., method="bh")
+
+check_prism_long %>%
+   filter(moa=="tubulin polymerization inhibitor") %>%
+   filter(!subtype=="High_cal") %>%
+   filter(!subtype=="Low_cal") %>%
+   ggplot(aes(x=subtype, y = value)) + geom_boxplot() +stat_compare_means() + geom_smooth(method="lm", se=FALSE, ) 
+
+cheese = check_prism_long %>%
+   filter(moa=="tubulin polymerization inhibitor") %>%
+   filter(!subtype=="High_cal") %>%
+   filter(!subtype=="Low_cal") %>%
+   FSA::dunnTest(value ~ subtype, data=., method="bh")
+View(cheese[["res"]])
+
+plot(prism_drug_AUC$X5.fluorouracil..GDSC1.179., sanger_drug_AUC$STAD_CIN)
+plot(prism_drug_AUC$X5.fluorouracil..GDSC1.179., sanger_drug_AUC$STAD_MSI)
+plot(prism_drug_AUC$X5.fluorouracil..GDSC1.179., sanger_drug_AUC$STAD_GS)
+
+ggplot(sanger_drug_IC50, aes(x = Piplartine..GDSC1.1243., y= EMT)) + geom_point()
+ggplot(sanger_drug_AUC, aes(x = Piplartine..GDSC1.1243., y= EMT)) + geom_point()
+
+####PRISM LONG
+prism_drug_AUC_long = prism_drug_AUC[,-c(2:24)]
+prism_drug_AUC_long = dplyr::select(prism_drug_AUC_long, -c("TME_subtype_cal","TCGA_subtype","ACRG_subtype"))
+
+gathercols <- names(prism_drug_AUC_long[,c(2:11)])
+
+prism_drug_AUC_long <- tidyr::gather(prism_drug_AUC_long, subtype, score, all_of(gathercols), factor_key=TRUE)
+
+gathercols <- names(prism_drug_AUC_long[,-c(1,617,618)])
+prism_drug_AUC_longer = tidyr::gather(prism_drug_AUC_long, drug, auc, all_of(gathercols), factor_key=TRUE)
+
+prism_drug_AUC_longer$drug_id = gsub(".BRD..*","",prism_drug_AUC_longer$drug)
+prism_drug_AUC_longer$drug_id = str_sub(prism_drug_AUC_longer$drug_id, end=-2)
+prism_drug_AUC_longer$drug_id =  gsub('\\.', '-', prism_drug_AUC_longer$drug_id)
+
+prism_drug_AUC_longer = merge(prism_drug_AUC_longer,prism_drug_id, by.x = "drug_id", by.y="pert_iname" )
+prism_drug_AUC_longer$moa =factor(prism_drug_AUC_longer$moa)
+
+prism_drug_AUC_longer %>%
+  filter(moa=="HDAC inhibitor") %>%
+  filter(subtype=="STAD_CIN") %>%
+ggplot(aes(x=auc, y = score)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + facet_wrap(~drug_id , scales="free_x")
+
+prism_drug_AUC_longer %>%
+  filter(moa=="Aurora kinase inhibitor") %>%
+  filter(subtype=="STAD_CIN") %>%
+ggplot(aes(x=auc, y = score)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + facet_wrap(~drug_id , scales="free_x")
+
+
+prism_drug_AUC_longer %>%
+  filter(moa=="tubulin polymerization inhibitor") %>%
+  filter(subtype=="EMT") %>%
+ggplot(aes(x=auc, y = score)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + facet_wrap(~drug_id , scales="free_x")
+
+```
+######POWER CALUCLATIONs for prism
+```{r}
+
+library(MKpower)
+library(pwr)
+library(effsize)
+
+
+#CohenD = (Mean - Mu) / Sd
+
+#For STAD CIN and HDAC inhibitor
+cohen.d(check_prism_long[check_prism_long$moa=="HDAC inhibitor" & check_prism_long$subtype=="STAD_CIN",]$value, f=NA)
+
+pwr.t.test(n = 18, d = 1.958969, sig.level = 0.05, type ="one.sample")
+#Passes the power test. 
+
+
+#Check wilcox
+
+r = check_prism_long[check_prism_long$moa=="HDAC inhibitor" & check_prism_long$subtype=="STAD_CIN",]$value
+hist(r) # appears normal
+shapiro.test(r) #do not reject the null... this this distribution is similar to a normal dist
+
+rx <- function(n) rnorm(n, mean = mean(r), sd = sd(r)) 
+
+sim.ssize.wilcox.test(rx = rx, n.min=5, n.max = 20, iter = 1000,step.size = 5, type = "one.sample",BREAK = FALSE)
+
+
+#check pearsons r power 
+#For prism there is at least 75% of 16 cases- thus 12 to 16 values. 0.95 is the greatest coefficient. 
+
+pwr.r.test(n = 12, r = 0.95, sig.level = 0.05,alternative = "two.sided")
+#power is 0.9999
+
+#For the mean case.. mean(abs(prism_corr_df$cor)). mean is 0.2261228 for correlations. For a given "significant drug pathway" the max mean correlation coefficient is about 0.3 to 0.4
+pwr.r.test(n = 16, r = 0.2261228, sig.level = 0.05,alternative = "two.sided")
+pwr.r.test(n = 12, r = 0.2261228, sig.level = 0.05,alternative = "two.sided")
+#In this case the power is 0.11-0.23
+
+pwr.r.test(n = 12, r = 0.3, sig.level = 0.05,alternative = "two.sided")
+pwr.r.test(n = 12, r = 0.4, sig.level = 0.05,alternative = "two.sided")
+pwr.r.test(n = 16, r = 0.3, sig.level = 0.05,alternative = "two.sided")
+pwr.r.test(n = 16, r = 0.4, sig.level = 0.05,alternative = "two.sided")
+#In this case the power is for r = 0.3 ... 0.16-0.2 and for r=0.4... 0.26-0.34
+```
+
+###DRUG SIMILARILITIES BETWEEN PRISM AND SANGER SINGIFICANT GROUPS 
+```{r}
+#Sanger
+
+erkmapk_sanger = tolower(unique(check_long[check_long$TARGET_PATHWAY=="ERK MAPK signaling",]$DRUG_NAME))
+pi3k_sanger = tolower(unique(check_long[check_long$TARGET_PATHWAY=="PI3K/MTOR signaling",]$DRUG_NAME))
+dna_rep_sanger = tolower(unique(check_long[check_long$TARGET_PATHWAY=="DNA replication",]$DRUG_NAME))
+
+#HDAC inhibitor, tubulin polymerization inhibitor,Aurora kinase inhibitor	,MEK inhibitor, mTOR inhibitor	,PI3K inhibitor	,topoisomerase inhibitor
+
+hdac_prism = tolower(unique(check_prism_long[check_prism_long$moa=="HDAC inhibitor",]$drug_id))
+pi3k_prism = tolower(unique(check_prism_long[check_prism_long$moa=="PI3K inhibitor",]$drug_id))
+tubulininhib_prism = tolower(unique(check_prism_long[check_prism_long$moa=="tubulin polymerization inhibitor",]$drug_id))
+aurora_kinase_prism = tolower(unique(check_prism_long[check_prism_long$moa=="Aurora kinase inhibitor",]$drug_id))
+mek_prism = tolower(unique(check_prism_long[check_prism_long$moa=="MEK inhibitor",]$drug_id))
+mTOR_prism = tolower(unique(check_prism_long[check_prism_long$moa=="mTOR inhibitor",]$drug_id))
+topoisomerase_prism = tolower(unique(check_prism_long[check_prism_long$moa=="topoisomerase inhibitor",]$drug_id))
+
+
+intersect(erkmapk_sanger,mek_prism)
+
+intersect(pi3k_sanger,pi3k_prism)
+
+intersect(pi3k_sanger,mTOR_prism)
+
+intersect(dna_rep_sanger,topoisomerase_prism)
+
+
+intersect(dna_rep_sanger,tubulininhib_prism)
+
+```
+
+
+
+
+
+##Power FOR  GLM model
+```{r}
+###SIMPLE MODEL with dolastation-10 as example
+rice = dplyr::select(prism_drug_AUC, c("givinostat..BRD.BRD.K13810148.311.03.2.", "STAD_CIN" , "STAD_MSI" , "STAD_GS","STAD_EBV"  ,"MSS_TP53neg" , "MSS_TP53pos", "EMT", "MSI", "High_cal"))
+rice = na.omit(rice)
+
+summary(lm(givinostat..BRD.BRD.K13810148.311.03.2.~STAD_CIN + STAD_MSI + STAD_GS + STAD_EBV +MSS_TP53neg+MSS_TP53pos+EMT+MSI +High_cal, data=rice))
+
+pwr.f2.test(u = 9, v=8, f2 = 0.5538/(1 - 0.5538), sig.level = 0.05)
+
+summary(lm(givinostat..BRD.BRD.K13810148.311.03.2.~STAD_CIN + STAD_MSI + STAD_GS + STAD_EBV +MSS_TP53neg+MSS_TP53pos+EMT+MSI, data=rice))
+
+pwr.f2.test(u = 8, v=9, f2 = 0.5001/(1 - 0.5001), sig.level = 0.05)
+
+
+summary(lm(givinostat..BRD.BRD.K13810148.311.03.2.~STAD_CIN + STAD_MSI + STAD_GS +STAD_EBV, data=rice))
+
+pwr.f2.test(u = 4, v=12, f2 = 0.4389/(1 - 0.4389), sig.level = 0.05)
+
+
+summary(lm(givinostat..BRD.BRD.K13810148.311.03.2.~MSS_TP53neg+MSS_TP53pos+EMT+MSI, data=rice))
+
+pwr.f2.test(u = 4, v=12, f2 = 0.1255/(1 - 0.1255), sig.level = 0.05)
+
+
+###OVERALL for these various examples power for the glm models with all variables will be about 0.5 at best and with tcga it is ~0.6 and acrg is ~0.2. Thus these models are underpowered and will likely result in approximately 40-60% PPV, thus based off of these estimates we need to collect more data to confirm/deny these effect estimates. 
+```
+
+###SIMPLE MODEL with dolastation-10 as example
+```{r}
+rice = dplyr::select(prism_drug_AUC, c("givinostat..BRD.BRD.K13810148.311.03.2.", "STAD_CIN" , "STAD_MSI" , "STAD_GS"  ,"MSS_TP53neg" , "MSS_TP53pos", "EMT", "MSI"))
+rice = na.omit(rice)
+
+model2_boot632 = caret::train(givinostat..BRD.BRD.K13810148.311.03.2. ~ STAD_CIN + STAD_MSI + STAD_GS  +MSS_TP53neg + MSS_TP53pos + EMT + MSI ,data = rice, 'glmnet',trControl=trainControl(method='boot632',number=500))
+
+
+model2_boot632_rf = caret::train(givinostat..BRD.BRD.K13810148.311.03.2. ~ STAD_CIN + STAD_MSI + STAD_GS  +MSS_TP53neg + MSS_TP53pos + EMT + MSI ,data = rice, 'rf',trControl=trainControl(method='boot632',number=500))
+
+
+pred = predict(model2_boot632_rf,rice)
+rice$pred = pred
+postResample(pred = pred, obs = rice$rescale)
+ggplot(rice, aes(x=rescale, y = pred, colour=STAD_MSI, fill=MSS_TP53neg)) + geom_point(shape=21, size=4, stroke=2) +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + xlim(0.65, 1) + ylim(0.65, 1)
+
+#####MAKE A FUNCTION TO MAKE MULTIVARIABLE MODELS FOR EACH DRUG
+
+df = test
+df = df[,c(1:39)]
+var = c("STAD_CIN" , "STAD_MSI" , "STAD_GS", "STAD_EBV","MSS_TP53neg" , "MSS_TP53pos", "EMT", "MSI", "High_cal")
+
+model_list = list()
+for (i in 1:ncol(df[,38:ncol(df)])) {
+set.seed(99)
+subset_df = na.omit(df[,c(var, colnames(df[,38:ncol(df)])[i])])
+x = subset_df[,c(var)]
+y = subset_df[,colnames(df[,38:ncol(df)])[i]]
+model_glmnet = caret::train(x,as.numeric(y),'glmnet',
+                    trControl=trainControl(method='cv',number=3))
+model_list[[i]] = model_glmnet
+}
+
+
+
+
+set.seed(99)
+folds = createFoldsOfData(survivalDataset = full_isd_final, numberOfFolds = 5)
+trainAndTest = folds[[2]]
+mtlrList_new = list()
+for(i in 1:5){
+  x = trainAndTest$Training[[i]]
+  y = trainAndTest$Testing[[i]]
+  MTLRMod = MTLR_new(trainingFold, testingFold)
+  mtlrList_new[[i]] = MTLRMod
+}
+
+
+set.seed(99)
+folds = createFoldsOfData(survivalDataset = full_isd_final, numberOfFolds = 5)
+trainAndTest = folds[[2]]
+mtlrList_new = list()
+for(i in 1:5){
+  trainingFold = trainAndTest$Training[[i]]
+  testingFold = trainAndTest$Testing[[i]]
+  MTLRMod = MTLR_new(trainingFold, testingFold)
+  mtlrList_new[[i]] = MTLRMod
+}
+
+
+
+rice = dplyr::select(test, c("drug_id", "moa", "subtype", "rescale", "score"))
+rice = na.omit(rice)
+rice = rice %>% filter(moa=="tubulin polymerization inhibitor")
+rice <- tidyr::spread(rice, subtype, score)
+rice = dplyr::select(rice, c("rescale", "STAD_CIN" , "STAD_MSI" , "STAD_GS"  ,"MSS_TP53neg" , "MSS_TP53pos", "EMT", "MSI"))
+
+model4_boot632 = caret::train(rescale ~ STAD_CIN + STAD_MSI + STAD_GS  +MSS_TP53neg + MSS_TP53pos + EMT + MSI ,data = rice, 'glmnet',trControl=trainControl(method='boot632',number=500))
+
+model4_cv = caret::train(rescale ~ STAD_CIN + STAD_MSI + STAD_GS  +MSS_TP53neg + MSS_TP53pos + EMT + MSI ,data = rice, 'glmnet',trControl=trainControl(method='cv',number=5))
+
+model4_boot632_rf = caret::train(rescale ~ STAD_CIN + STAD_MSI + STAD_GS  +MSS_TP53neg + MSS_TP53pos + EMT + MSI ,data = rice, 'rf',trControl=trainControl(method='boot632',number=500))
+
+
+
+
+
+#########
+
+
+ggplot(prism_drug_AUC_long, aes(x=MK.8245..BRD.BRD.K29656036.001.02.5., y = score)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + facet_wrap(~subtype)
+
+
+ggplot(prism_drug_AUC, aes(x=X5.fluorouracil..BRD.BRD.K24844714.001.24.5., y = STAD_CIN)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(prism_drug_AUC, aes(x=X5.fluorouracil..BRD.BRD.K24844714.001.24.5., y = STAD_MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(prism_drug_AUC, aes(x=X5.fluorouracil..BRD.BRD.K24844714.001.24.5., y = STAD_GS)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(prism_drug_AUC, aes(x=X5.fluorouracil..BRD.BRD.K24844714.001.24.5., y = MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(prism_drug_AUC, aes(x=X5.fluorouracil..BRD.BRD.K24844714.001.24.5., y = MSS_TP53neg)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(prism_drug_AUC, aes(x=X5.fluorouracil..BRD.BRD.K24844714.001.24.5., y = MSS_TP53pos)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(prism_drug_AUC, aes(x=X5.fluorouracil..BRD.BRD.K24844714.001.24.5., y = EMT)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+
+
+
+
+ggplot(prism_drug_AUC, aes(x=MK.8245..BRD.BRD.K29656036.001.02.5., y = STAD_GS)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+```
+###COMPARE PRISM AND UNIVARIABLE SINGIFICANT RESULTS 
+```{R}
+
+p1 =check_long %>%
+    filter(TARGET_PATHWAY=="PI3K/MTOR signaling") %>%
+    filter(!subtype=="Low_cal") %>%
+    ggplot(aes(x=value, y = reorder(subtype,-value))) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3) 
+
+p2 = check_prism_long %>%
+   filter(moa=="PI3K inhibitor") %>%
+   filter(!subtype=="Low_cal") %>%
+    ggplot(aes(x=value, y = reorder(subtype,-value))) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3) 
+
+library(patchwork)
+p1+p2
+
+
+p1 =check_long %>%
+    filter(TARGET_PATHWAY=="ERK MAPK signaling") %>%
+    filter(!subtype=="Low_cal") %>%
+    ggplot(aes(x=value, y = reorder(subtype,-value))) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3) 
+
+
+p2=check_prism_long %>%
+   filter(moa=="MEK inhibitor") %>%
+   filter(!subtype=="Low_cal") %>%
+    ggplot(aes(x=value, y = reorder(subtype,-value))) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3) 
+p1+p2
+
+
+
+p1=check_long %>%
+    filter(TARGET_PATHWAY=="DNA replication") %>%
+    filter(!subtype=="Low_cal") %>%
+    ggplot(aes(x=value, y = reorder(subtype,-value))) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3) 
+
+
+p2=check_prism_long %>%
+   filter(moa=="topoisomerase inhibitor") %>%
+   filter(!subtype=="Low_cal") %>%
+    ggplot(aes(x=value, y = reorder(subtype,-value))) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3) 
+p1+p2
+```
+
+###COMPARE univariable and multivariable Rsquared 
+```{r}
+sanger_corr_df$group = "sanger_uni"
+prism_corr_df$group = "prism_uni"
+rsquared_combo = rbind(prism_corr_df,sanger_corr_df)
+
+ggplot(rsquared_combo, aes(x = rsquared, y= group)) + stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="errorbar", width=0.3) +
+  stat_summary(fun.data = mean_cl_boot, colour="royalblue", geom="point", size = 3)
+
+```
+
+
+
+#MSI and p53 vs cell line subtype score s
+```{r}
+library(readxl)
+msi_status <- read_excel("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/Chan_et_al_2019_Supplementary_Table_1.xlsx")
+
+msi_analysis = merge(combo_data, msi_status, by.x="CCLE_Name", by.y= "CCLE_ID")
+
+msi_analysis$GDSC_MSI = as.factor(msi_analysis$GDSC_MSI)
+msi_analysis$CCLE_MSI = as.factor(msi_analysis$CCLE_MSI)
+msi_analysis$MMR_loss = as.factor(msi_analysis$MMR_loss)
+
+
+ggplot(msi_analysis, aes(x =CCLE_MSI , y= STAD_MSI)) + geom_boxplot() + stat_compare_means()
+msi_analysis %>% rstatix::wilcox_effsize(STAD_MSI ~ CCLE_MSI)
+
+msi_analysis %>% filter(!GDSC_MSI=="NA")  %>% 
+ggplot(aes(x =GDSC_MSI , y= STAD_MSI)) + geom_boxplot() + stat_compare_means()
+msi_analysis %>% filter(!GDSC_MSI=="NA") %>% rstatix::wilcox_effsize(STAD_MSI ~ GDSC_MSI)
+
+msi_analysis %>% filter(!MMR_loss=="NA") %>%
+ggplot(aes(x =MMR_loss , y= STAD_MSI)) + geom_boxplot() + stat_compare_means()
+msi_analysis %>% filter(!MMR_loss=="NA") %>% rstatix::wilcox_effsize(STAD_MSI ~ MMR_loss)
+
+
+ggplot(msi_analysis, aes(x =ms_deletions_normed , y= STAD_MSI)) + geom_point() + geom_smooth(method="lm", se=FALSE) +
+  stat_cor(inherit.aes=FALSE,
+                  method="pearson", 
+                  label.x = 0.005,
+                  aes(x = ms_deletions_normed, y =STAD_MSI),
+                  cor.coef.name = "rho",
+                  size = 4.5,
+                  r.digits = 2,
+                  p.digits = 2) 
+
+ggplot(msi_analysis, aes(x =ms_deletions_normed , y= MSI)) + geom_point() +geom_smooth(method="lm", se=FALSE) +  stat_cor(inherit.aes=FALSE,
+                  method="pearson", 
+                  label.x = 0.005,
+                  aes(x = ms_deletions_normed, y =MSI),
+                  cor.coef.name = "rho",
+                  size = 4.5,
+                  r.digits = 2,
+                  p.digits = 2)
+
+ggplot(msi_analysis, aes(x =frac_deletions_in_ms_regions , y= STAD_MSI)) + geom_point() + geom_smooth(method="lm", se=FALSE) +
+  stat_cor(inherit.aes=FALSE,
+                  method="pearson", 
+                  label.x = 0.005,
+                  aes(x = frac_deletions_in_ms_regions, y =STAD_MSI),
+                  cor.coef.name = "rho",
+                  size = 4.5,
+                  r.digits = 2,
+                  p.digits = 2) 
+
+ggplot(msi_analysis, aes(x =frac_deletions_in_ms_regions , y= MSI)) + geom_point() + geom_smooth(method="lm", se=FALSE) + stat_cor(inherit.aes=FALSE,
+                  method="pearson", 
+                  label.x = 0.005,
+                  aes(x = frac_deletions_in_ms_regions, y =MSI),
+                  cor.coef.name = "rho",
+                  size = 4.5,
+                  r.digits = 2,
+                  p.digits = 2)
+
+
+ggplot(msi_analysis, aes(x =CCLE_MSI , y= MSI)) + geom_boxplot() + stat_compare_means()
+ggplot(msi_analysis, aes(x =GDSC_MSI , y= MSI)) + geom_boxplot() + stat_compare_means()
+ggplot(msi_analysis, aes(x =MMR_loss , y= MSI)) + geom_boxplot() + stat_compare_means()
+
+msi_analysis %>%
+    filter(!TP53_status=="NA")  %>%
+ggplot(aes(x =TP53_status , y= STAD_CIN)) + geom_boxplot() + stat_compare_means()
+msi_analysis %>%filter(!TP53_status=="NA")  %>% rstatix::wilcox_effsize(STAD_CIN ~ TP53_status, boot=1000, ci = TRUE, ci.type="bca")
+
+msi_analysis %>%
+    filter(!TP53_status=="NA")  %>%
+ggplot(aes(x =TP53_status , y= MSS_TP53neg)) + geom_boxplot() + stat_compare_means()
+cheese = msi_analysis %>%filter(!TP53_status=="NA")  %>% rstatix::wilcox_effsize(MSS_TP53neg ~ TP53_status, boot=1000, ci = TRUE, ci.type="bca")
+
+
+msi_analysis %>%
+    filter(!TP53_status=="NA")  %>%
+ggplot(aes(x =TP53_status , y= MSS_TP53pos)) + geom_boxplot() + stat_compare_means()
+
+```
+
+#Copy number 
+```{r}
+cnv_absolute <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/Copy_Number_(Absolute)_subsetted.csv", row.names=1, stringsAsFactors=TRUE)
+
+cnv_absolute = tibble::rownames_to_column(cnv_absolute, "sample_id")
+
+cnv_absolute$rowmedian = rowMedians(as.matrix(cnv_absolute[,c(2:21841)]))
+
+cnv_absolute_data= merge(combo_data, cnv_absolute, by="sample_id")
+
+
+dim(cnv_absolute_data)
+
+
+plot(cnv_absolute_data$STAD_GS,cnv_absolute_data$rowmedian)
+
+ggplot(cnv_absolute_data, aes(x =STAD_CIN , y=rowmedian)) + geom_point() + geom_smooth(method="lm", se=FALSE)+ stat_cor(inherit.aes=FALSE,
+                  method="pearson", 
+                  label.x = 0.005,
+                  aes(x = rowmedian, y =STAD_CIN),
+                  cor.coef.name = "rho",
+                  size = 4.5,
+                  r.digits = 2,
+                  p.digits = 2)
+
+
+cnv_absolute_data = cnv_absolute_data[,-c(2:26)]
+cnv_absolute_data_long = dplyr::select(cnv_absolute_data, -c("TME_subtype_cal","TCGA_subtype","ACRG_subtype", "rowmedian"))
+
+
+#Wide to long 
+
+keycol <- "gene"
+valuecol <- "measurement"
+gathercols <- names(cnv_absolute_data_long[,c(12:ncol(cnv_absolute_data_long))])
+
+cnv_absolute_data_long <- tidyr::gather(cnv_absolute_data_long, keycol, valuecol, all_of(gathercols), factor_key=TRUE)
+
+
+#CNV 
+cnv_relative <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/Copy_Number_21Q4_Public_subsetted.csv", row.names=1, stringsAsFactors=TRUE)
+
+cnv_relative = tibble::rownames_to_column(cnv_relative, "sample_id")
+
+cnv_relative$rowmedian = rowMedians(as.matrix(cnv_relative[,c(2:24353)]))
+
+cnv_relative_data= merge(combo_data, cnv_relative, by="sample_id")
+
+
+dim(cnv_relative_data)
+
+
+plot(cnv_relative_data$STAD_GS,cnv_relative_data$rowmedian)
+ggplot(cnv_relative_data, aes(x =STAD_CIN , y=rowmedian)) + geom_point() + geom_smooth(method="lm", se=FALSE) + stat_cor()
+
+
+cnv_absolute_data = cnv_absolute_data[,-c(2:26)]
+cnv_absolute_data_long = dplyr::select(cnv_absolute_data, -c("TME_subtype_cal","TCGA_subtype","ACRG_subtype", "rowmedian"))
+
+
+#Wide to long 
+
+keycol <- "gene"
+valuecol <- "measurement"
+gathercols <- names(cnv_absolute_data_long[,c(12:ncol(cnv_absolute_data_long))])
+
+cnv_absolute_data_long <- tidyr::gather(cnv_absolute_data_long, keycol, valuecol, all_of(gathercols), factor_key=TRUE)
+
+
+ggplot(cnv_absolute_data, aes(x =STAD_CIN , y=rowmedian)) + geom_point() + geom_smooth(method="lm", se=FALSE)
+
+```
+
+#Aneuploidy score 
+```{r}
+aneuoploidy_score <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/Aneuploidy_subsetted.csv", row.names=1, stringsAsFactors=TRUE)
+
+aneuoploidy_score = tibble::rownames_to_column(aneuoploidy_score, "sample_id")
+
+
+aneuoploidy_score_data= merge(combo_data, aneuoploidy_score, by="sample_id")
+
+
+keycol <- "gene"
+valuecol <- "measurement"
+gathercols <- c("High_cal", "STAD_CIN", "STAD_EBV","STAD_GS", "STAD_MSI", "MSS_TP53neg","MSS_TP53pos", "MSI", "EMT")
+
+aneuoploidy_score_data_long <- tidyr::gather(aneuoploidy_score_data, keycol, valuecol, gathercols, factor_key=TRUE)
+
+
+ggplot(aneuoploidy_score_data, aes(x =STAD_CIN , y=Aneuploidy.score)) + geom_point() + geom_smooth(method="lm", se=FALSE) + stat_cor(inherit.aes=FALSE,
+                  method="pearson", 
+                  label.x = 0.005,
+                  aes(x = Aneuploidy.score, y =STAD_CIN),
+                  cor.coef.name = "rho",
+                  size = 4.5,
+                  r.digits = 2,
+                  p.digits = 2)
+
+
+ggplot(aneuoploidy_score_data_long, aes(x =valuecol , y=Aneuploidy.score)) + geom_point() + geom_smooth(method="gam", se=FALSE) + stat_cor(inherit.aes=FALSE,
+                  method="spearman", 
+                  label.x = 0.005,
+                  aes(x = Aneuploidy.score, y =valuecol),
+                  cor.coef.name = "rho",
+                  size = 4.5,
+                  r.digits = 2,
+                  p.digits = 2) + facet_wrap(~keycol)+ theme_bw()
+
+ggplot(aneuoploidy_score_data, aes(x =TCGA_subtype , y=Aneuploidy.score)) + geom_boxplot()  
+
+ggplot(aneuoploidy_score_data, aes(x =STAD_GS , y=Aneuploidy.score)) + geom_point() + geom_smooth(method="lm", se=FALSE)
+```
+
+
+##CHECK colon cell lines by MSI status. 
+```{r}
+colon_sanger_drug_AUC <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/COLON_Drug_sensitivity_AUC_(Sanger_GDSC1)_subsetted.csv", row.names=1, stringsAsFactors=TRUE)
+colon_sanger_drug_AUC = tibble::rownames_to_column(colon_sanger_drug_AUC, "sample_id")
+
+pheno_colon <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/colon_sample_info.csv")
+colnames(pheno_colon)[which(names(pheno_colon) == "DepMap_ID")] <- "sample_id"
+
+colon_sanger_drug_AUC = merge(pheno_colon,colon_sanger_drug_AUC, by="sample_id" )
+
+
+
+library(readxl)
+msi_status <- read_excel("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/Chan_et_al_2019_Supplementary_Table_1.xlsx")
+
+msi_analysis_colon = merge(colon_sanger_drug_AUC, msi_status, by.x="CCLE_Name", by.y= "CCLE_ID")
+
+
+
+#Gastric
+cheese = merge(sanger_drug_AUC,msi_analysis, by="CCLE_Name" )
+
+ggplot(cheese, aes(x=X5.fluorouracil..GDSC1.179., y = ms_deletions_normed)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE )
+
+ggplot(msi_analysis_colon, aes(x=X5.fluorouracil..GDSC1.179., y = ms_deletions_normed)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE )
+
+ggplot(msi_analysis_colon, aes(x=X5.fluorouracil..GDSC1.179., y = frac_deletions_in_ms_regions)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE )
+
+
+```
+
+##EXTRA CODE
+#Drug sensitivity AUC GDSC1
+```{r}
+sanger_drug_AUC <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/Drug_sensitivity_AUC_(Sanger_GDSC1)_subsetted.csv", row.names=1, stringsAsFactors=TRUE)
+
+sanger_drug_AUC <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/gastric_eso_Drug_sensitivity_AUC_(Sanger_GDSC1)_subsetted.csv", row.names=1, stringsAsFactors=TRUE)
+
+
+sanger_drug_AUC = tibble::rownames_to_column(sanger_drug_AUC, "sample_id")
+
+sanger_drug_AUC= merge(combo_data, sanger_drug_AUC, by="sample_id")
+
+
+#Filter out drugs with greater than 25%  of cell lines missing
+sanger_drug_AUC = sanger_drug_AUC[lapply(sanger_drug_AUC, function(x) sum(is.na(x)) / length(x) ) <= 0.25 ]
+
+sanger_drug_AUC_cor = sanger_drug_AUC[,-c(2:26)]
+sanger_drug_AUC_cor = dplyr::select(sanger_drug_AUC_cor, -c("TME_subtype_cal","TCGA_subtype","ACRG_subtype"))
+
+sanger_drug_AUC_cor = sanger_drug_AUC_cor[, which(colMeans(!is.na(sanger_drug_AUC_cor)) > 0.4)] #Filterr out drugs with greater than 40% NA
+  
+cor_matt_sanger_drug_AUC = cor((sanger_drug_AUC_cor[,-1]),use="pairwise.complete.obs", method="pearson")
+cor_matt_sanger_drug_AUC = cor_matt_sanger_drug_AUC[-c(11:nrow(cor_matt_sanger_drug_AUC)), -c(1:11)]  
+
+table(is.na(cor_matt_sanger_drug_AUC))
+giveNAs = which(is.na(as.matrix(cor_matt_sanger_drug_AUC)),arr.ind=TRUE)
+head(giveNAs)
+cor_matt_sanger_drug_AUC = cor_matt_sanger_drug_AUC[, colSums(is.na(cor_matt_sanger_drug_AUC)) != nrow(cor_matt_sanger_drug_AUC)]
+table(is.na(cor_matt_sanger_drug_AUC))
+
+
+pheatmap(cor_matt_sanger_drug_AUC)
+
+check = as.data.frame(t(cor_matt_sanger_drug_AUC))
+check = tibble::rownames_to_column(check, "drug_name")  
+
+
+####LONG
+sanger_drug_AUC_long = sanger_drug_AUC[,-c(2:26)]
+sanger_drug_AUC_long = dplyr::select(sanger_drug_AUC_long, -c("TME_subtype_cal","TCGA_subtype","ACRG_subtype"))
+
+
+gathercols <- names(sanger_drug_AUC_long[,c(2:11)])
+
+sanger_drug_AUC_long <- tidyr::gather(sanger_drug_AUC_long, subtype, score, all_of(gathercols), factor_key=TRUE)
+
+
+ggplot(sanger_drug_AUC_long, aes(x=SNX.2112..GDSC1.328., y = score)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + facet_wrap(~subtype)
+
+ggplot(sanger_drug_AUC_long, aes(x=PF.4708671..GDSC1.1129., y = score)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + facet_wrap(~subtype)
+
+
+lm(X5.fluorouracil..GDSC1.179.~ STAD_CIN + STAD_MSI + STAD_GS  +MSS_TP53neg + MSS_TP53pos , data = sanger_drug_AUC)
+
+rice = dplyr::select(sanger_drug_AUC, c("X5.fluorouracil..GDSC1.179.", "STAD_CIN" , "STAD_MSI" , "STAD_GS"  ,"MSS_TP53neg" , "MSS_TP53pos", "EMT", "MSI"))
+rice = na.omit(rice)
+
+rice = dplyr::select(sanger_drug_AUC, c("PF.4708671..GDSC1.1129.", "STAD_CIN" , "STAD_MSI" , "STAD_GS"  ,"MSS_TP53neg" , "MSS_TP53pos", "EMT", "MSI"))
+rice = na.omit(rice)
+
+
+model1 = caret::train(X5.fluorouracil..GDSC1.179. ~ STAD_CIN + STAD_MSI + STAD_GS  +MSS_TP53neg + MSS_TP53pos + EMT + MSI ,data = rice, 'glmnet',trControl=trainControl(method='cv',number=5))
+
+
+
+
+model1_boot632 = caret::train(PF.4708671..GDSC1.1129. ~ STAD_CIN + STAD_MSI + STAD_GS  +MSS_TP53neg + MSS_TP53pos + EMT + MSI ,data = rice, 'glmnet',trControl=trainControl(method='boot632',number=500))
+
+
+model1_rf = caret::train(X5.fluorouracil..GDSC1.179. ~ STAD_CIN + STAD_MSI + STAD_GS  +MSS_TP53neg + MSS_TP53pos,data = rice, 'rf',trControl=trainControl(method='cv',number=5))
+
+
+model2_rf = caret::train(X5.fluorouracil..GDSC1.179. ~ STAD_CIN + STAD_MSI + STAD_GS  +MSS_TP53neg + MSS_TP53pos + EMT + MSI + High_cal,data = rice, 'rf',trControl=trainControl(method='cv',number=5))
+
+
+
+plot(varImp(model1))
+
+pred = predict(model1,rice)
+rice$pred = pred
+postResample(pred = pred, obs = rice$X5.fluorouracil..GDSC1.179.)
+ggplot(rice, aes(x=X5.fluorouracil..GDSC1.179., y = pred, colour=STAD_MSI, fill=MSS_TP53neg)) + geom_point(shape=21, size=4, stroke=2) +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + xlim(0.65, 1) + ylim(0.65, 1)
+
+plot(sanger_drug_AUC$X5.fluorouracil..GDSC1.179., sanger_drug_AUC$STAD_CIN)
+plot(sanger_drug_AUC$X5.fluorouracil..GDSC1.179., sanger_drug_AUC$STAD_MSI)
+plot(sanger_drug_AUC$X5.fluorouracil..GDSC1.179., sanger_drug_AUC$STAD_GS)
+ggplot(sanger_drug_AUC, aes(x=X5.fluorouracil..GDSC1.179., y = STAD_CIN)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=X5.fluorouracil..GDSC1.179., y = STAD_CIN)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE ) + facet_wrap(~primary_disease)
+`
+ggplot(sanger_drug_AUC, aes(x=X5.fluorouracil..GDSC1.179., y = STAD_MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=X5.fluorouracil..GDSC1.179., y = STAD_MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE ) + facet_wrap(~primary_disease)
+
+ggplot(sanger_drug_AUC, aes(x=X5.fluorouracil..GDSC1.179., y = STAD_GS)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=X5.fluorouracil..GDSC1.179., y = MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=X5.fluorouracil..GDSC1.179., y = MSS_TP53neg)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=X5.fluorouracil..GDSC1.179., y = MSS_TP53pos)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=X5.fluorouracil..GDSC1.179., y = EMT)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+
+plot(sanger_drug_AUC$docetaxel..GDSC1.1007., sanger_drug_AUC$STAD_CIN)
+plot(sanger_drug_AUC$docetaxel..GDSC1.1007., sanger_drug_AUC$STAD_MSI)
+plot(sanger_drug_AUC$docetaxel..GDSC1.1007., sanger_drug_AUC$STAD_GS)
+ggplot(sanger_drug_AUC, aes(x=docetaxel..GDSC1.1007., y = STAD_CIN)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=docetaxel..GDSC1.1007., y = STAD_MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=docetaxel..GDSC1.1007., y = STAD_GS)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=docetaxel..GDSC1.1007., y = MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=docetaxel..GDSC1.1007., y = MSS_TP53neg)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=docetaxel..GDSC1.1007., y = MSS_TP53pos)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=docetaxel..GDSC1.1007., y = EMT)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+
+ggplot(sanger_drug_AUC, aes(x=cisplatin..GDSC1.1005., y = STAD_CIN)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=cisplatin..GDSC1.1005., y = STAD_MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=cisplatin..GDSC1.1005., y = STAD_GS)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=cisplatin..GDSC1.1005., y = MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=cisplatin..GDSC1.1005., y = MSS_TP53neg)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=cisplatin..GDSC1.1005., y = MSS_TP53pos)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=cisplatin..GDSC1.1005., y = EMT)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+
+
+
+ggplot(sanger_drug_AUC, aes(x=doxorubicin..GDSC1.133., y = STAD_CIN)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=doxorubicin..GDSC1.133., y = STAD_MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=doxorubicin..GDSC1.133., y = STAD_GS)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=doxorubicin..GDSC1.133., y = MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=doxorubicin..GDSC1.133., y = MSS_TP53neg)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=doxorubicin..GDSC1.133., y = MSS_TP53pos)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=doxorubicin..GDSC1.133., y = EMT)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+
+
+
+ggplot(sanger_drug_AUC, aes(x=paclitaxel..GDSC1.11., y = STAD_CIN)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=paclitaxel..GDSC1.11., y = STAD_MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=paclitaxel..GDSC1.11., y = STAD_GS)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=paclitaxel..GDSC1.11., y = MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=paclitaxel..GDSC1.11., y = MSS_TP53neg)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=paclitaxel..GDSC1.11., y = MSS_TP53pos)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=paclitaxel..GDSC1.11., y = EMT)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+
+
+```
+#Drug sensitivity IC50
+```{r}
+sanger_drug_IC50 <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/Drug_sensitivity_IC50_(Sanger_GDSC1)_subsetted.csv", row.names=1, stringsAsFactors=TRUE)
+
+sanger_drug_IC50 = tibble::rownames_to_column(sanger_drug_IC50, "sample_id")
+
+sanger_drug_IC50= merge(combo_data, sanger_drug_IC50, by="sample_id")
+
+
+
+sanger_drug_IC50_cor = sanger_drug_IC50[,-c(2:26)]
+sanger_drug_IC50_cor = dplyr::select(sanger_drug_IC50_cor, -c("TME_subtype_cal","TCGA_subtype","ACRG_subtype"))
+
+sanger_drug_IC50_cor = sanger_drug_IC50_cor[, which(colMeans(!is.na(sanger_drug_IC50_cor)) > 0.4)] #Filterr out drugs with greater than 40% NA
+  
+cor_matt_sanger_drug_IC50 = cor((sanger_drug_IC50_cor[,-1]),use="pairwise.complete.obs", method="pearson")
+cor_matt_sanger_drug_IC50 = cor_matt_sanger_drug_IC50[-c(11:nrow(cor_matt_sanger_drug_IC50)), -c(1:11)]  
+
+table(is.na(cor_matt_sanger_drug_IC50))
+giveNAs = which(is.na(as.matrix(cor_matt_sanger_drug_IC50)),arr.ind=TRUE)
+head(giveNAs)
+cor_matt_sanger_drug_IC50 = cor_matt_sanger_drug_IC50[, colSums(is.na(cor_matt_sanger_drug_IC50)) != nrow(cor_matt_sanger_drug_IC50)]
+table(is.na(cor_matt_sanger_drug_IC50))
+
+
+pheatmap(cor_matt_sanger_drug_IC50)
+
+check = as.data.frame(t(cor_matt_sanger_drug_IC50))
+check = tibble::rownames_to_column(check, "drug_name")  
+
+
+plot(sanger_drug_AUC$X5.fluorouracil..GDSC1.179., sanger_drug_AUC$STAD_CIN)
+plot(sanger_drug_AUC$X5.fluorouracil..GDSC1.179., sanger_drug_AUC$STAD_MSI)
+plot(sanger_drug_AUC$X5.fluorouracil..GDSC1.179., sanger_drug_AUC$STAD_GS)
+
+ggplot(sanger_drug_IC50, aes(x = Piplartine..GDSC1.1243., y= EMT)) + geom_point()
+ggplot(sanger_drug_AUC, aes(x = Piplartine..GDSC1.1243., y= EMT)) + geom_point()
+
+ggplot(sanger_drug_IC50, aes(x=X5.fluorouracil..GDSC1.179., y = STAD_CIN)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_IC50, aes(x=X5.fluorouracil..GDSC1.179., y = STAD_MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_IC50, aes(x=X5.fluorouracil..GDSC1.179., y = STAD_GS)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_IC50, aes(x=X5.fluorouracil..GDSC1.179., y = MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_IC50, aes(x=X5.fluorouracil..GDSC1.179., y = MSS_TP53neg)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_IC50, aes(x=X5.fluorouracil..GDSC1.179., y = MSS_TP53pos)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_IC50, aes(x=X5.fluorouracil..GDSC1.179., y = EMT)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+
+```
+#Drug sensitivity primary screen
+```{r}
+prism_drug_AUC <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/Drug_sensitivity_(PRISM_Repurposing_Primary_Screen)_19Q4_subsetted.csv", row.names=1, stringsAsFactors=TRUE)
+
+prism_drug_AUC = tibble::rownames_to_column(prism_drug_AUC, "sample_id")
+
+prism_drug_AUC= merge(combo_data, prism_drug_AUC, by="sample_id")
+
+
+
+prism_drug_AUC_cor = prism_drug_AUC[,-c(2:26)]
+prism_drug_AUC_cor = dplyr::select(prism_drug_AUC_cor, -c("TME_subtype_cal","TCGA_subtype","ACRG_subtype"))
+
+prism_drug_AUC_cor = prism_drug_AUC_cor[, which(colMeans(!is.na(prism_drug_AUC_cor)) > 0.4)] #Filterr out drugs with greater than 40% NA
+  
+cor_matt_prism_drug_AUC = cor((prism_drug_AUC_cor[,-1]),use="pairwise.complete.obs", method="pearson")
+cor_matt_prism_drug_AUC = cor_matt_prism_drug_AUC[-c(11:nrow(cor_matt_prism_drug_AUC)), -c(1:11)]  
+
+table(is.na(cor_matt_prism_drug_AUC))
+giveNAs = which(is.na(as.matrix(cor_matt_prism_drug_AUC)),arr.ind=TRUE)
+head(giveNAs)
+cor_matt_prism_drug_AUC = cor_matt_prism_drug_AUC[, colSums(is.na(cor_matt_prism_drug_AUC)) != nrow(cor_matt_prism_drug_AUC)]
+table(is.na(cor_matt_prism_drug_AUC))
+
+
+pheatmap(cor_matt_prism_drug_AUC)
+
+check = as.data.frame(t(cor_matt_prism_drug_AUC))
+check = tibble::rownames_to_column(check, "drug_name")  
+
+plot(prism_drug_AUC$X5.fluorouracil..BRD.BRD.K24844714.001.24.5.,prism_drug_AUC$STAD_MSI)
+plot(prism_drug_AUC$X5.fluorouracil..BRD.BRD.K24844714.001.24.5.,prism_drug_AUC$STAD_CIN)
+
+
+ggplot(prism_drug_AUC, aes(x=X5.fluorouracil..BRD.BRD.K24844714.001.24.5., y = STAD_CIN)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(prism_drug_AUC, aes(x=X5.fluorouracil..BRD.BRD.K24844714.001.24.5., y = STAD_MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(prism_drug_AUC, aes(x=X5.fluorouracil..BRD.BRD.K24844714.001.24.5., y = STAD_GS)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(prism_drug_AUC, aes(x=X5.fluorouracil..BRD.BRD.K24844714.001.24.5., y = MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(prism_drug_AUC, aes(x=X5.fluorouracil..BRD.BRD.K24844714.001.24.5., y = MSS_TP53neg)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(prism_drug_AUC, aes(x=X5.fluorouracil..BRD.BRD.K24844714.001.24.5., y = MSS_TP53pos)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(prism_drug_AUC, aes(x=X5.fluorouracil..BRD.BRD.K24844714.001.24.5., y = EMT)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+
+plot(prism_drug_AUC$gimeracil..BRD.BRD.K35687421.001.02.5., prism_drug_AUC$STAD_CIN)
+plot(prism_drug_AUC$gimeracil..BRD.BRD.K35687421.001.02.5., prism_drug_AUC$STAD_MSI)
+plot(prism_drug_AUC$gimeracil..BRD.BRD.K35687421.001.02.5., prism_drug_AUC$STAD_GS)
+
+ggplot(sanger_drug_IC50, aes(x = Piplartine..GDSC1.1243., y= EMT)) + geom_point()
+ggplot(sanger_drug_AUC, aes(x = Piplartine..GDSC1.1243., y= EMT)) + geom_point()
+```
+
+#OLD STUFF
+```{r}
+ggplot(sanger_drug_AUC_long, aes(x=dabrafenib..GDSC2.1373.
+, y = score)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + facet_wrap(~subtype)
+
+ggplot(sanger_drug_AUC_long, aes(x=MN.64..GDSC2.1854., y = score)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + facet_wrap(~subtype)
+
+ggplot(sanger_drug_AUC_long, aes(x=Wee1.Inhibitor..GDSC2.1046., y = score)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + facet_wrap(~subtype)
+ggplot(sanger_drug_AUC_long, aes(x=carmustine..GDSC2.1807., y = score)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, ) + facet_wrap(~subtype)
+
+ggplot(sanger_drug_AUC, aes(x=X5.fluorouracil..GDSC2.1073., y = STAD_CIN)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=X5.fluorouracil..GDSC2.1073., y = STAD_MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=X5.fluorouracil..GDSC2.1073., y = STAD_GS)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=X5.fluorouracil..GDSC2.1073., y = STAD_EBV)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=X5.fluorouracil..GDSC2.1073., y = MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=X5.fluorouracil..GDSC2.1073., y = MSS_TP53neg)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=X5.fluorouracil..GDSC2.1073., y = MSS_TP53pos)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=X5.fluorouracil..GDSC2.1073., y = EMT)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+
+docetaxel..GDSC2.1819.
+
+ggplot(sanger_drug_AUC, aes(x=docetaxel..GDSC2.1007., y = STAD_CIN)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=docetaxel..GDSC2.1007., y = STAD_MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=docetaxel..GDSC2.1007., y = STAD_GS)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=docetaxel..GDSC2.1007., y = MSI)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=docetaxel..GDSC2.1007., y = MSS_TP53neg)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=docetaxel..GDSC2.1007., y = MSS_TP53pos)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+ggplot(sanger_drug_AUC, aes(x=docetaxel..GDSC2.1007., y = EMT)) + geom_point() +stat_cor() + geom_smooth(method="lm", se=FALSE, )
+
+```
+
+
+
+#old colde for fxn
+```{r}
+test = sanger_drug_AUC
+df = test
+df = df[,c(1:41)]
+var = c("STAD_CIN" , "STAD_MSI" , "STAD_GS", "STAD_EBV","MSS_TP53neg" , "MSS_TP53pos", "EMT", "MSI", "High_cal")
+
+model_list = list()
+rsq_df = NULL
+
+for (i in 1:ncol(df[,40:ncol(df)])) {
+set.seed(99)
+subset_df = na.omit(df[,c(var, colnames(df[,40:ncol(df)])[i])])
+x = subset_df[,c(var)]
+y = subset_df[,colnames(df[,40:ncol(df)])[i]]
+model_glmnet = caret::train(x,as.numeric(y),'glmnet',
+                    trControl=trainControl(method='cv',number=3))
+model_list[[paste(colnames(df[,40:ncol(df)])[i])]] = model_glmnet
+Rsquared = mean(model_glmnet$resample$Rsquared)
+RsquaredSD = sd(model_glmnet$resample$Rsquared)
+rsq_df = rbind(rsq_df, data.frame(Rsquared,RsquaredSD))
+}
+
+row.names(rsq_df) = colnames(df[,40:ncol(df)])
+
+
+```
+
+
+###GOOD FUNCTION 
+```{r}
+#####MAKE A FUNCTION TO MAKE MULTIVARIABLE MODELS FOR EACH DRUG
+
+library(svMisc) # for progress bar
+
+#data = data frame
+#var = variables for x 
+#y_names = columns names for y variables to test
+#seed = set.seed
+#model = caret model as 'model' ex.'glmnet'
+#train_method = method for trControl. ex. 'cv', 'boot632'
+#number = number of folds/bootstraps
+
+multivariate_drug_effiacy = function(data, var, y_names, seed, model, train_method, number) {
+  
+df = as.data.frame(data)
+var = var
+number=number
+model = model
+train_method = train_method
+model_list = list()
+y_names=y_names
+rsq_df = NULL
+seed=seed
+
+####Loop
+for (i in 1:ncol(df[,y_names])) {
+set.seed(seed)
+subset_df = na.omit(df[,c(var, y_names[i])])
+x = subset_df[,c(var)]
+y = subset_df[,y_names[i]]
+model_glmnet = caret::train(x,as.numeric(y),model,trControl=trainControl(method=train_method,number=number))
+model_list[[paste(colnames(df[,y_names])[i])]] = model_glmnet
+Rsquared = mean(model_glmnet$resample$Rsquared)
+RsquaredSD = sd(model_glmnet$resample$Rsquared)
+rsq_df = rbind(rsq_df, data.frame(Rsquared,RsquaredSD))
+####progress bar
+progress(i, length(y_names))
+  Sys.sleep(0.02)
+  if (i == length(y_names)) message("Done!")
+#End Loop 
+}
+####End function
+row.names(rsq_df) = colnames(df[,y_names])
+  return(list(model_list=model_list,rsq_df=rsq_df))
+}
+
+
+
+
+
+
+
+#####LATEST FUNCTION
+
+multivariate_drug_effiacy = function(data, var, y_names, seed, model_type, train_method, number) {
+  
+df = as.data.frame(data)
+var = var
+number=number
+model_type = model_type
+train_method = train_method
+model_list = list()
+y_names=y_names
+rsq_df = NULL
+coefficient = NULL
+seed=seed
+
+####Loop
+for (i in 1:ncol(df[,y_names])) {
+set.seed(seed)
+subset_df = na.omit(df[,c(var, y_names[i])])
+x = subset_df[,c(var), drop=FALSE]
+y = subset_df[,y_names[i]]
+model = caret::train(x,as.numeric(y),model_type,trControl=trainControl(method=train_method,number=number))
+model_list[[paste(colnames(df[,y_names])[i])]] = model
+best_metrics = getTrainPerf(model)
+rsq_df = rbind(rsq_df, data.frame(best_metrics))
+
+if (model_type == 'glmnet') {
+coef_df = coef(model$finalModel,model$finalModel$lambdaOpt)
+coef_df <- t(data.frame(coef_df = coef_df[,1]))
+coefficient = rbind(coefficient, data.frame(coef_df))
+}
+  else {coef_df = model$finalModel$coefficients
+coef_df = t(data.frame(coef_df = coef_df))
+coefficient = rbind(coefficient, data.frame(coef_df))
+}
+####progress bar
+progress(i, length(y_names))
+  Sys.sleep(0.02)
+  if (i == length(y_names)) message("Done!")
+#End Loop 
+}
+####End function
+row.names(rsq_df) = colnames(df[,y_names])
+if (model_type == 'glmnet') {
+  row.names(coefficient) = colnames(df[,y_names])
+  return(list(model_list=model_list,rsq_df=rsq_df,coefficient=coefficient))
+}
+else row.names(coefficient) = colnames(df[,y_names])
+  return(list(model_list=model_list,rsq_df=rsq_df,coefficient=coefficient))
+}
+
+```
+#DOPAR parallel try (needs more work)
+```{r}
+
+##############PARALLEL PROCESSING#######
+
+#Will set up to use 2 cores 
+n.cores = 2
+
+my.cluster <- parallel::makeCluster(
+  n.cores, 
+  type = "PSOCK"
+  )
+doParallel::registerDoParallel(cl = my.cluster)
+foreach::getDoParRegistered()
+
+
+multivariate_drug_effiacy = function(data, var, y_names, seed, model_type, train_method, number) {
+  
+df = as.data.frame(data)
+var = var
+number=number
+model_type = model_type
+train_method = train_method
+model_list = list()
+y_names=y_names
+rsq_df = NULL
+coefficient = NULL
+seed=seed
+
+####Loop
+foreach(i = 1:ncol(df[,y_names])) %dopar%  {
+set.seed(seed)
+subset_df = na.omit(df[,c(var, y_names[i])])
+x = subset_df[,c(var), drop=FALSE]
+y = subset_df[,y_names[i]]
+model = caret::train(x,as.numeric(y),model_type,trControl=trainControl(method=train_method,number=number, allowParallel = TRUE))
+model_list[[paste(colnames(df[,y_names])[i])]] = model
+best_metrics = getTrainPerf(model)
+rsq_df = rbind(rsq_df, data.frame(best_metrics))
+
+if (model_type == 'glmnet') {
+coef_df = coef(model$finalModel,model$finalModel$lambdaOpt)
+coef_df <- t(data.frame(coef_df = coef_df[,1]))
+coefficient = rbind(coefficient, data.frame(coef_df))
+}
+  else {coef_df = model$finalModel$coefficients
+coef_df = t(data.frame(coef_df = coef_df))
+coefficient = rbind(coefficient, data.frame(coef_df))
+}
+####progress bar
+progress(i, length(y_names))
+  Sys.sleep(0.02)
+  if (i == length(y_names)) message("Done!")
+#End Loop 
+}
+####End function
+row.names(rsq_df) = colnames(df[,y_names])
+if (model_type == 'glmnet') {
+  row.names(coefficient) = colnames(df[,y_names])
+  return(list(model_list=model_list,rsq_df=rsq_df,coefficient=coefficient))
+}
+else row.names(coefficient) = colnames(df[,y_names])
+  return(list(model_list=model_list,rsq_df=rsq_df,coefficient=coefficient))
+}
+
+
+```
+
+
+#CORES built into function 
+
+
+
+amp_up_models <- function(){
+  library(parallel)
+  library(doParallel)
+  no_cores <- parallel::detectCores() - 1
+  #Leave one core available for Operating system
+  cluster <- makePSOCKcluster(no_cores)
+  registerDoParallel(cluster)
+  cat("Model amped and ready to go with:", no_cores, "cores. \n")
+}
+
+
+multivariate_drug_efficacy = function(data, var, y_names, seed, model_type, train_method, number, parallel) {
+  
+df = as.data.frame(data)
+var = var
+number=number
+model_type = model_type
+train_method = train_method
+model_list = list()
+y_names=y_names
+rsq_df = NULL
+coefficient = NULL
+seed=seed
+
+if (parallel==TRUE) {
+amp_up_models()
+}  
+
+####Loop
+foreach(i = 1:ncol(df[,y_names])) %do%  {
+set.seed(seed)
+subset_df = na.omit(df[,c(var, y_names[i])])
+x = subset_df[,c(var), drop=FALSE]
+y = subset_df[,y_names[i]]
+model = caret::train(x,as.numeric(y),model_type,trControl=trainControl(method=train_method,number=number, allowParallel = parallel))
+model_list[[paste(colnames(df[,y_names])[i])]] = model
+best_metrics = getTrainPerf(model)
+rsq_df = rbind(rsq_df, data.frame(best_metrics))
+
+if (model_type == 'glmnet') {
+coef_df = coef(model$finalModel,model$finalModel$lambdaOpt)
+coef_df <- t(data.frame(coef_df = coef_df[,1]))
+coefficient = rbind(coefficient, data.frame(coef_df))
+}
+  else {coef_df = model$finalModel$coefficients
+coef_df = t(data.frame(coef_df = coef_df))
+coefficient = rbind(coefficient, data.frame(coef_df))
+}
+####progress bar
+progress(i, length(y_names))
+  Sys.sleep(0.02)
+  if (i == length(y_names)) message("Done!")
+#End Loop 
+}
+####End function
+row.names(rsq_df) = colnames(df[,y_names])
+if (model_type == 'glmnet') {
+  row.names(coefficient) = colnames(df[,y_names])
+  return(list(model_list=model_list,rsq_df=rsq_df,coefficient=coefficient))
+}
+else row.names(coefficient) = colnames(df[,y_names])
+  return(list(model_list=model_list,rsq_df=rsq_df,coefficient=coefficient))
+}
