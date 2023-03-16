@@ -1,0 +1,2036 @@
+---
+title: "1se lasso"
+author: "Daniel Skubleny"
+date: "10/04/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+### THIS IS WHERE I NEED TO ESTABLISH MY NESTED CV. 
+
+```{r}
+subtype_edata = as.data.frame(subtype_edata)
+#Create 80/20% data split at random
+
+#Convert numeric columns to numeric
+subtype_edata[,2:ncol(subtype_edata)] = lapply(2:ncol(subtype_edata),function(x) as.numeric(subtype_edata[[x]]))
+```
+```{r}
+set.seed(99)
+trainRowNumbers = createDataPartition(subtype_edata$SUBTYPE, p=0.8,list=FALSE,times = 10)
+trainRowNumbers = as.data.frame(trainRowNumbers)
+```
+
+#/////CV fold 1 for lasso features/////
+
+```{r}
+trainData1 = subtype_edata[trainRowNumbers$Resample01,]
+testData1 = subtype_edata[-trainRowNumbers$Resample01,]
+```
+```{r}
+#Make our test and train data
+x=data.matrix(trainData1[, 2:9285])
+y= trainData1$SUBTYPE
+y = as.factor(y)
+x.test= data.matrix(testData1[, 2:9285])
+y.test = testData1$SUBTYPE
+y.test = as.factor(y.test)
+```
+
+# glmNET LASSO - Optimal performance on individual classification (Grouped data assessment not shown)
+
+```{r}
+set.seed(99)
+lasso.10fold = cv.glmnet(x,y,family="multinomial", nfolds=10)
+lasso.10fold.model1 = lasso.10fold
+predict.lasso.10fold = predict(lasso.10fold, x.test, type="class")
+table.lasso.10fold = table(predict.lasso.10fold, y.test)
+full.lasso1 = confusionMatrix(table.lasso.10fold, mode = "everything")
+full.lasso1
+```
+```{r}
+#Brier Score for Lasso
+brier.lasso = predict(lasso.10fold, x.test, type="response")
+brier.lasso = (brier.lasso)/rowSums(brier.lasso)
+brier.lasso.full1 = multiclass.Brier(brier.lasso,y.test)
+brier.lasso.full1
+```
+
+
+#Extract features
+```{r}
+coef.lasso.10fold = coef(lasso.10fold, s="lambda.1se")
+```
+```{r}
+featuresextracted.lasso = as.data.frame(x) %>% dplyr::select(coef.lasso.10fold[["STAD_CIN"]]@i,coef.lasso.10fold[["STAD_EBV"]]@i,coef.lasso.10fold[["STAD_GS"]]@i,coef.lasso.10fold[["STAD_MSI"]]@i)
+
+x.lasso = as.matrix(featuresextracted.lasso)
+x.lassoTCGA1 = x.lasso
+
+featuresextracted.lasso.test = as.data.frame(x.test) %>% dplyr::select(coef.lasso.10fold[["STAD_CIN"]]@i,coef.lasso.10fold[["STAD_EBV"]]@i,coef.lasso.10fold[["STAD_GS"]]@i,coef.lasso.10fold[["STAD_MSI"]]@i)
+
+x.lasso.test = as.matrix(featuresextracted.lasso.test)
+x.lasso.testTCGA1 = x.lasso.test
+```
+
+#Lasso with lasso features
+```{r}
+set.seed(99)
+lasso.lasso = caret::train(x.lasso,y,'glmnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+lasso.lasso.model1 = lasso.lasso
+predict.lasso.lasso = predict(lasso.lasso,x.lasso.test)
+table.lasso.lasso = table(predict.lasso.lasso,y.test)
+lasso.lasso1 = confusionMatrix(table.lasso.lasso, mode = "everything")
+lasso.lasso1
+```
+```{r}
+#Brier Score for Lasso
+brier.lasso.lasso = predict(lasso.lasso, x.lasso.test, type="prob")
+brier.lasso.lasso = (brier.lasso.lasso)/rowSums(brier.lasso.lasso)
+brier.lasso.lasso1 = multiclass.Brier(brier.lasso.lasso,y.test)
+brier.lasso.lasso1
+```
+
+#Naive Bayes with lasso features
+
+```{r,warning=FALSE}
+set.seed(99)
+nb.lasso = caret::train(x.lasso,y,'naive_bayes',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+nb.lasso.model1 = nb.lasso
+predict.nb.lasso = predict(nb.lasso$finalModel,x.lasso.test)
+table.nb.lasso = table(predict.nb.lasso,y.test)
+nb.lasso1 = confusionMatrix(table.nb.lasso)
+nb.lasso1
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.nb.lasso = predict(nb.lasso,newdata = x.lasso.test, type="prob")
+brier.nb.lasso = (brier.nb.lasso)/rowSums(brier.nb.lasso)
+brier.nb.lasso1 = multiclass.Brier(brier.nb.lasso,y.test)
+brier.nb.lasso1
+```
+
+#RF with lasso features
+```{r}
+set.seed(99)
+rf.lasso = caret::train(x.lasso,y,'rf',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+rf.lasso.model1 = rf.lasso
+predict.rf.lasso = predict(rf.lasso,x.lasso.test)
+table.rf.lasso = table(predict.rf.lasso,y.test)
+rf.lasso1 = confusionMatrix(table.rf.lasso)
+rf.lasso1
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.rf.lasso = predict(rf.lasso,newdata = x.lasso.test, type="prob")
+brier.rf.lasso = (brier.rf.lasso)/rowSums(brier.rf.lasso)
+brier.rf.lasso1 = multiclass.Brier(brier.rf.lasso,y.test)
+brier.rf.lasso1
+```
+
+#GBM with lasso features
+```{r}
+set.seed(99)
+gbm.lasso = caret::train(x.lasso,y,'gbm',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+gbm.lasso.model1 = gbm.lasso
+predict.gbm.lasso = predict(gbm.lasso,x.lasso.test)
+table.gbm.lasso = table(predict.gbm.lasso,y.test)
+gbm.lasso1 = confusionMatrix(table.gbm.lasso, mode = "everything")
+gbm.lasso1
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.gbm.lasso = predict(gbm.lasso,newdata = x.lasso.test, type="prob")
+brier.gbm.lasso = (brier.gbm.lasso)/rowSums(brier.gbm.lasso)
+brier.gbm.lasso1 = multiclass.Brier(brier.gbm.lasso,y.test)
+brier.gbm.lasso1
+```
+
+#KNN
+```{r}
+set.seed(99)
+knn.lasso = caret::train(x.lasso,y,'knn',trControl=trainControl(method='repeatedcv',number=5, repeats = 3),tuneGrid = expand.grid(k=c(3,6,9,12,15)))
+knn.lasso.model1 = knn.lasso
+predict.knn.lasso = predict(knn.lasso,x.lasso.test)
+table.knn.lasso = table(predict.knn.lasso,y.test)
+knn.lasso1 = confusionMatrix(table.knn.lasso)
+knn.lasso1
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.knn.lasso = predict(knn.lasso,newdata = x.lasso.test, type="prob")
+brier.knn.lasso = (brier.knn.lasso)/rowSums(brier.knn.lasso)
+brier.knn.lasso1 = multiclass.Brier(brier.knn.lasso,y.test)
+brier.knn.lasso1
+```
+
+#SVM
+```{r}
+set.seed(99)
+svm.lasso = caret::train(x.lasso,y,'svmLinear2',trControl=trainControl(method='repeatedcv',number=5, repeats = 3,classProbs = TRUE))
+svm.lasso.model1 = svm.lasso
+predict.svm.lasso = predict(svm.lasso,x.lasso.test)
+table.svm.lasso = table(predict.svm.lasso,y.test)
+svm.lasso1 = confusionMatrix(table.svm.lasso)
+svm.lasso1
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.svm.lasso = predict(svm.lasso,newdata = x.lasso.test, type = "prob")
+brier.svm.lasso = (brier.svm.lasso)/rowSums(brier.svm.lasso)
+brier.svm.lasso1 = multiclass.Brier(brier.svm.lasso,y.test)
+brier.svm.lasso1
+```
+
+#Neural Net
+```{r}
+set.seed(99)
+nnet.lasso = caret::train(x.lasso,y,'nnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3),tuneGrid = expand.grid(decay = c(1,0.5,0,1e-1,1e-4),size = c(1, 3, 5, 7)))
+nnet.lasso.model1 = nnet.lasso
+predict.nnet.lasso = predict(nnet.lasso,x.lasso.test)
+table.nnet.lasso = table(predict.nnet.lasso,y.test)
+nnet.lasso1 = confusionMatrix(table.nnet.lasso)
+nnet.lasso1
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.nnet.lasso = predict(nnet.lasso,newdata = x.lasso.test, type="prob")
+brier.nnet.lasso = (brier.nnet.lasso)/rowSums(brier.nnet.lasso)
+brier.nnet.lasso1 = multiclass.Brier(brier.nnet.lasso,y.test)
+brier.nnet.lasso1
+```
+
+#/////CV fold 2 for Lasso features/////
+
+```{r}
+trainData2 = subtype_edata[trainRowNumbers$Resample02,]
+testData2 = subtype_edata[-trainRowNumbers$Resample02,]
+```
+```{r}
+#Make our test and train data
+x=data.matrix(trainData2[, 2:9285])
+y= trainData2$SUBTYPE
+y = as.factor(y)
+x.test= data.matrix(testData2[, 2:9285])
+y.test = testData2$SUBTYPE
+y.test = as.factor(y.test)
+```
+
+# glmNET LASSO - Optimal performance on individual classification (Grouped data assessment not shown)
+
+```{r}
+set.seed(99)
+lasso.10fold = cv.glmnet(x,y,family="multinomial", nfolds=10)
+lasso.10fold.model2 = lasso.10fold
+predict.lasso.10fold = predict(lasso.10fold, x.test, type="class")
+table.lasso.10fold = table(predict.lasso.10fold, y.test)
+full.lasso2 = confusionMatrix(table.lasso.10fold)
+full.lasso2
+```
+```{r}
+#Brier Score for Lasso
+brier.lasso = predict(lasso.10fold, x.test, type="response")
+brier.lasso = (brier.lasso)/rowSums(brier.lasso)
+brier.lasso.full2 = multiclass.Brier(brier.lasso,y.test)
+brier.lasso.full2
+```
+#Extract features
+```{r}
+coef.lasso.10fold = coef(lasso.10fold, s="lambda.1se")
+```
+```{r}
+featuresextracted.lasso = as.data.frame(x) %>% dplyr::select(coef.lasso.10fold[["STAD_CIN"]]@i,coef.lasso.10fold[["STAD_EBV"]]@i,coef.lasso.10fold[["STAD_GS"]]@i,coef.lasso.10fold[["STAD_MSI"]]@i)
+
+x.lasso = as.matrix(featuresextracted.lasso)
+x.lassoTCGA2 = x.lasso
+
+featuresextracted.lasso.test = as.data.frame(x.test) %>% dplyr::select(coef.lasso.10fold[["STAD_CIN"]]@i,coef.lasso.10fold[["STAD_EBV"]]@i,coef.lasso.10fold[["STAD_GS"]]@i,coef.lasso.10fold[["STAD_MSI"]]@i)
+
+x.lasso.test = as.matrix(featuresextracted.lasso.test)
+x.lasso.testTCGA2 = x.lasso.test
+```
+
+#Lasso with lasso features
+```{r}
+set.seed(99)
+lasso.lasso = caret::train(x.lasso,y,'glmnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+lasso.lasso.model2 = lasso.lasso
+predict.lasso.lasso = predict(lasso.lasso,x.lasso.test)
+table.lasso.lasso = table(predict.lasso.lasso,y.test)
+lasso.lasso2 = confusionMatrix(table.lasso.lasso, mode = "everything")
+lasso.lasso2
+```
+```{r}
+#Brier Score for Lasso
+brier.lasso.lasso = predict(lasso.lasso, x.lasso.test, type="prob")
+brier.lasso.lasso = (brier.lasso.lasso)/rowSums(brier.lasso.lasso)
+brier.lasso.lasso2 = multiclass.Brier(brier.lasso.lasso,y.test)
+brier.lasso.lasso2
+```
+#Naive Bayes with lasso features
+
+```{r,warning=FALSE}
+set.seed(99)
+nb.lasso = caret::train(x.lasso,y,'naive_bayes',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+nb.lasso.model2=nb.lasso
+predict.nb.lasso = predict(nb.lasso$finalModel,x.lasso.test)
+table.nb.lasso = table(predict.nb.lasso,y.test)
+nb.lasso2 = confusionMatrix(table.nb.lasso)
+nb.lasso2
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.nb.lasso = predict(nb.lasso,newdata = x.lasso.test, type="prob")
+brier.nb.lasso = (brier.nb.lasso)/rowSums(brier.nb.lasso)
+brier.nb.lasso2 = multiclass.Brier(brier.nb.lasso,y.test)
+brier.nb.lasso2
+```
+
+#RF with lasso features
+```{r}
+set.seed(99)
+rf.lasso = caret::train(x.lasso,y,'rf',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+rf.lasso.model2 = rf.lasso
+predict.rf.lasso = predict(rf.lasso,x.lasso.test)
+table.rf.lasso = table(predict.rf.lasso,y.test)
+rf.lasso2 = confusionMatrix(table.rf.lasso)
+rf.lasso2
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.rf.lasso = predict(rf.lasso,newdata = x.lasso.test, type="prob")
+brier.rf.lasso = (brier.rf.lasso)/rowSums(brier.rf.lasso)
+brier.rf.lasso2 = multiclass.Brier(brier.rf.lasso,y.test)
+brier.rf.lasso2
+```
+
+#GBM with lasso features
+```{r}
+set.seed(99)
+gbm.lasso = caret::train(x.lasso,y,'gbm',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+gbm.lasso.model2 = gbm.lasso
+predict.gbm.lasso = predict(gbm.lasso,x.lasso.test)
+table.gbm.lasso = table(predict.gbm.lasso,y.test)
+gbm.lasso2 = confusionMatrix(table.gbm.lasso)
+gbm.lasso2
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.gbm.lasso = predict(gbm.lasso,newdata = x.lasso.test, type="prob")
+brier.gbm.lasso = (brier.gbm.lasso)/rowSums(brier.gbm.lasso)
+brier.gbm.lasso2 = multiclass.Brier(brier.gbm.lasso,y.test)
+brier.gbm.lasso2
+```
+
+#KNN
+```{r}
+set.seed(99)
+knn.lasso = caret::train(x.lasso,y,'knn',trControl=trainControl(method='repeatedcv',number=5, repeats = 3),tuneGrid = expand.grid(k=c(3,6,9,12,15)))
+knn.lasso.model2 = knn.lasso
+predict.knn.lasso = predict(knn.lasso,x.lasso.test)
+table.knn.lasso = table(predict.knn.lasso,y.test)
+knn.lasso2 = confusionMatrix(table.knn.lasso)
+knn.lasso2
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.knn.lasso = predict(knn.lasso,newdata = x.lasso.test, type="prob")
+brier.knn.lasso = (brier.knn.lasso)/rowSums(brier.knn.lasso)
+brier.knn.lasso2 = multiclass.Brier(brier.knn.lasso,y.test)
+brier.knn.lasso2
+```
+
+#SVM
+```{r}
+set.seed(99)
+svm.lasso = caret::train(x.lasso,y,'svmLinear2',trControl=trainControl(method='repeatedcv',number=5, repeats = 3,classProbs = TRUE))
+svm.lasso.model2 = svm.lasso
+predict.svm.lasso = predict(svm.lasso,x.lasso.test)
+table.svm.lasso = table(predict.svm.lasso,y.test)
+svm.lasso2 = confusionMatrix(table.svm.lasso)
+svm.lasso2
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.svm.lasso = predict(svm.lasso,newdata = x.lasso.test, type="prob")
+brier.svm.lasso = (brier.svm.lasso)/rowSums(brier.svm.lasso)
+brier.svm.lasso2 = multiclass.Brier(brier.svm.lasso,y.test)
+brier.svm.lasso2
+```
+
+#Neural Net
+```{r}
+set.seed(99)
+nnet.lasso = caret::train(x.lasso,y,'nnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3),tuneGrid = expand.grid(decay = c(1,0.5,0,1e-1,1e-4),size = c(1, 3, 5, 7)))
+nnet.lasso.model2 = nnet.lasso
+predict.nnet.lasso = predict(nnet.lasso,x.lasso.test)
+table.nnet.lasso = table(predict.nnet.lasso,y.test)
+nnet.lasso2 = confusionMatrix(table.nnet.lasso)
+nnet.lasso2
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.nnet.lasso = predict(nnet.lasso,newdata = x.lasso.test, type="prob")
+brier.nnet.lasso = (brier.nnet.lasso)/rowSums(brier.nnet.lasso)
+brier.nnet.lasso2 = multiclass.Brier(brier.nnet.lasso,y.test)
+brier.nnet.lasso2
+```
+
+#/////CV fold 3 for Lasso features/////
+
+```{r}
+trainData3 = subtype_edata[trainRowNumbers$Resample03,]
+testData3 = subtype_edata[-trainRowNumbers$Resample03,]
+```
+```{r}
+#Make our test and train data
+x=data.matrix(trainData3[, 2:9285])
+y= trainData3$SUBTYPE
+y = as.factor(y)
+x.test= data.matrix(testData3[, 2:9285])
+y.test = testData3$SUBTYPE
+y.test = as.factor(y.test)
+```
+
+# glmNET LASSO - Optimal performance on individual classification (Grouped data assessment not shown)
+
+```{r}
+set.seed(99)
+lasso.10fold = cv.glmnet(x,y,family="multinomial", nfolds=10)
+lasso.10fold.model3 = lasso.10fold
+predict.lasso.10fold = predict(lasso.10fold, x.test, type="class")
+table.lasso.10fold = table(predict.lasso.10fold, y.test)
+full.lasso3 = confusionMatrix(table.lasso.10fold)
+full.lasso3
+```
+```{r}
+#Brier Score for Lasso
+brier.lasso = predict(lasso.10fold, x.test, type="response")
+brier.lasso = (brier.lasso)/rowSums(brier.lasso)
+brier.lasso.full3 = multiclass.Brier(brier.lasso,y.test)
+brier.lasso.full3
+```
+#Extract features
+```{r}
+coef.lasso.10fold = coef(lasso.10fold, s="lambda.1se")
+```
+```{r}
+featuresextracted.lasso = as.data.frame(x) %>% dplyr::select(coef.lasso.10fold[["STAD_CIN"]]@i,coef.lasso.10fold[["STAD_EBV"]]@i,coef.lasso.10fold[["STAD_GS"]]@i,coef.lasso.10fold[["STAD_MSI"]]@i)
+
+x.lasso = as.matrix(featuresextracted.lasso)
+x.lassoTCGA3 = x.lasso
+
+featuresextracted.lasso.test = as.data.frame(x.test) %>% dplyr::select(coef.lasso.10fold[["STAD_CIN"]]@i,coef.lasso.10fold[["STAD_EBV"]]@i,coef.lasso.10fold[["STAD_GS"]]@i,coef.lasso.10fold[["STAD_MSI"]]@i)
+
+x.lasso.test = as.matrix(featuresextracted.lasso.test)
+x.lasso.testTCGA3 = x.lasso.test
+```
+
+#Lasso with lasso features
+```{r}
+set.seed(99)
+lasso.lasso = caret::train(x.lasso,y,'glmnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+lasso.lasso.model3 = lasso.lasso
+predict.lasso.lasso = predict(lasso.lasso,x.lasso.test)
+table.lasso.lasso = table(predict.lasso.lasso,y.test)
+lasso.lasso3 = confusionMatrix(table.lasso.lasso, mode = "everything")
+lasso.lasso3
+```
+```{r}
+#Brier Score for Lasso
+brier.lasso.lasso = predict(lasso.lasso, x.lasso.test, type="prob")
+brier.lasso.lasso = (brier.lasso.lasso)/rowSums(brier.lasso.lasso)
+brier.lasso.lasso3 = multiclass.Brier(brier.lasso.lasso,y.test)
+brier.lasso.lasso3
+```
+#Naive Bayes with lasso features
+
+```{r,warning=FALSE}
+set.seed(99)
+nb.lasso = caret::train(x.lasso,y,'naive_bayes',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+nb.lasso.model3 = nb.lasso
+predict.nb.lasso = predict(nb.lasso$finalModel,x.lasso.test)
+table.nb.lasso = table(predict.nb.lasso,y.test)
+nb.lasso3 = confusionMatrix(table.nb.lasso)
+nb.lasso3
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.nb.lasso = predict(nb.lasso,newdata = x.lasso.test, type="prob")
+brier.nb.lasso = (brier.nb.lasso)/rowSums(brier.nb.lasso)
+brier.nb.lasso3 = multiclass.Brier(brier.nb.lasso,y.test)
+brier.nb.lasso3
+```
+
+#RF with lasso features
+```{r}
+set.seed(99)
+rf.lasso = caret::train(x.lasso,y,'rf',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+rf.lasso.model3 = rf.lasso
+predict.rf.lasso = predict(rf.lasso,x.lasso.test)
+table.rf.lasso = table(predict.rf.lasso,y.test)
+rf.lasso3 = confusionMatrix(table.rf.lasso)
+rf.lasso3
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.rf.lasso = predict(rf.lasso,newdata = x.lasso.test, type="prob")
+brier.rf.lasso = (brier.rf.lasso)/rowSums(brier.rf.lasso)
+brier.rf.lasso3 = multiclass.Brier(brier.rf.lasso,y.test)
+brier.rf.lasso3
+```
+
+#GBM with lasso features
+```{r}
+set.seed(99)
+gbm.lasso = caret::train(x.lasso,y,'gbm',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+gbm.lasso.model3 = gbm.lasso
+predict.gbm.lasso = predict(gbm.lasso,x.lasso.test)
+table.gbm.lasso = table(predict.gbm.lasso,y.test)
+gbm.lasso3 = confusionMatrix(table.gbm.lasso)
+gbm.lasso3
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.gbm.lasso = predict(gbm.lasso,newdata = x.lasso.test, type="prob")
+brier.gbm.lasso = (brier.gbm.lasso)/rowSums(brier.gbm.lasso)
+brier.gbm.lasso3 = multiclass.Brier(brier.gbm.lasso,y.test)
+brier.gbm.lasso3
+```
+
+#KNN
+```{r}
+set.seed(99)
+knn.lasso = caret::train(x.lasso,y,'knn',trControl=trainControl(method='repeatedcv',number=5, repeats = 3),tuneGrid = expand.grid(k=c(3,6,9,12,15)))
+knn.lasso.model3 = knn.lasso
+predict.knn.lasso = predict(knn.lasso,x.lasso.test)
+table.knn.lasso = table(predict.knn.lasso,y.test)
+knn.lasso3 = confusionMatrix(table.knn.lasso)
+knn.lasso3
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.knn.lasso = predict(knn.lasso,newdata = x.lasso.test, type="prob")
+brier.knn.lasso = (brier.knn.lasso)/rowSums(brier.knn.lasso)
+brier.knn.lasso3 = multiclass.Brier(brier.knn.lasso,y.test)
+brier.knn.lasso3
+```
+
+#SVM
+```{r}
+set.seed(99)
+svm.lasso = caret::train(x.lasso,y,'svmLinear2',trControl=trainControl(method='repeatedcv',number=5, repeats = 3,classProbs = TRUE))
+svm.lasso.model3 = svm.lasso
+predict.svm.lasso = predict(svm.lasso,x.lasso.test)
+table.svm.lasso = table(predict.svm.lasso,y.test)
+svm.lasso3 = confusionMatrix(table.svm.lasso)
+svm.lasso3
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.svm.lasso = predict(svm.lasso,newdata = x.lasso.test, type="prob")
+brier.svm.lasso = (brier.svm.lasso)/rowSums(brier.svm.lasso)
+brier.svm.lasso3 = multiclass.Brier(brier.svm.lasso,y.test)
+brier.svm.lasso3
+```
+
+#Neural Net
+```{r}
+set.seed(99)
+nnet.lasso = caret::train(x.lasso,y,'nnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3),tuneGrid = expand.grid(decay = c(1,0.5,0,1e-1,1e-4),size = c(1, 3, 5, 7)))
+nnet.lasso.model3 = nnet.lasso
+predict.nnet.lasso = predict(nnet.lasso,x.lasso.test)
+table.nnet.lasso = table(predict.nnet.lasso,y.test)
+nnet.lasso3 = confusionMatrix(table.nnet.lasso)
+nnet.lasso3
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.nnet.lasso = predict(nnet.lasso,newdata = x.lasso.test, type="prob")
+brier.nnet.lasso = (brier.nnet.lasso)/rowSums(brier.nnet.lasso)
+brier.nnet.lasso3 = multiclass.Brier(brier.nnet.lasso,y.test)
+brier.nnet.lasso3
+```
+
+
+
+
+#/////CV fold 4 for Lasso features/////
+
+```{r}
+trainData4 = subtype_edata[trainRowNumbers$Resample04,]
+testData4 = subtype_edata[-trainRowNumbers$Resample04,]
+```
+```{r}
+#Make our test and train data
+x=data.matrix(trainData4[, 2:9285])
+y= trainData4$SUBTYPE
+y = as.factor(y)
+x.test= data.matrix(testData4[, 2:9285])
+y.test = testData4$SUBTYPE
+y.test = as.factor(y.test)
+```
+
+# glmNET LASSO - Optimal performance on individual classification (Grouped data assessment not shown)
+
+```{r}
+set.seed(99)
+lasso.10fold = cv.glmnet(x,y,family="multinomial", nfolds=10)
+lasso.10fold.model4 = lasso.10fold
+predict.lasso.10fold = predict(lasso.10fold, x.test, type="class")
+table.lasso.10fold = table(predict.lasso.10fold, y.test)
+full.lasso4 = confusionMatrix(table.lasso.10fold)
+full.lasso4
+```
+```{r}
+#Brier Score for Lasso
+brier.lasso = predict(lasso.10fold, x.test, type="response")
+brier.lasso = (brier.lasso)/rowSums(brier.lasso)
+brier.lasso.full4 = multiclass.Brier(brier.lasso,y.test)
+brier.lasso.full4
+```
+#Extract features
+```{r}
+coef.lasso.10fold = coef(lasso.10fold, s="lambda.1se")
+```
+```{r}
+featuresextracted.lasso = as.data.frame(x) %>% dplyr::select(coef.lasso.10fold[["STAD_CIN"]]@i,coef.lasso.10fold[["STAD_EBV"]]@i,coef.lasso.10fold[["STAD_GS"]]@i,coef.lasso.10fold[["STAD_MSI"]]@i)
+
+x.lasso = as.matrix(featuresextracted.lasso)
+x.lassoTCGA4 = x.lasso
+
+featuresextracted.lasso.test = as.data.frame(x.test) %>% dplyr::select(coef.lasso.10fold[["STAD_CIN"]]@i,coef.lasso.10fold[["STAD_EBV"]]@i,coef.lasso.10fold[["STAD_GS"]]@i,coef.lasso.10fold[["STAD_MSI"]]@i)
+
+x.lasso.test = as.matrix(featuresextracted.lasso.test)
+x.lasso.testTCGA4 = x.lasso.test
+```
+
+#Lasso with lasso features
+```{r}
+set.seed(99)
+lasso.lasso = caret::train(x.lasso,y,'glmnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+lasso.lasso.model4 = lasso.lasso
+predict.lasso.lasso = predict(lasso.lasso,x.lasso.test)
+table.lasso.lasso = table(predict.lasso.lasso,y.test)
+lasso.lasso4 = confusionMatrix(table.lasso.lasso, mode = "everything")
+lasso.lasso4
+```
+```{r}
+#Brier Score for Lasso
+brier.lasso.lasso = predict(lasso.lasso, x.lasso.test, type="prob")
+brier.lasso.lasso = (brier.lasso.lasso)/rowSums(brier.lasso.lasso)
+brier.lasso.lasso4 = multiclass.Brier(brier.lasso.lasso,y.test)
+brier.lasso.lasso4
+```
+#Naive Bayes with lasso features
+
+```{r,warning=FALSE}
+set.seed(99)
+nb.lasso = caret::train(x.lasso,y,'naive_bayes',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+nb.lasso.model4 = nb.lasso
+predict.nb.lasso = predict(nb.lasso$finalModel,x.lasso.test)
+table.nb.lasso = table(predict.nb.lasso,y.test)
+nb.lasso4 = confusionMatrix(table.nb.lasso)
+nb.lasso4
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.nb.lasso = predict(nb.lasso,newdata = x.lasso.test, type="prob")
+brier.nb.lasso = (brier.nb.lasso)/rowSums(brier.nb.lasso)
+brier.nb.lasso4 = multiclass.Brier(brier.nb.lasso,y.test)
+brier.nb.lasso4
+```
+
+#RF with lasso features
+```{r}
+set.seed(99)
+rf.lasso = caret::train(x.lasso,y,'rf',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+rf.lasso.model4 = rf.lasso
+predict.rf.lasso = predict(rf.lasso,x.lasso.test)
+table.rf.lasso = table(predict.rf.lasso,y.test)
+rf.lasso4 = confusionMatrix(table.rf.lasso)
+rf.lasso4
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.rf.lasso = predict(rf.lasso,newdata = x.lasso.test, type="prob")
+brier.rf.lasso = (brier.rf.lasso)/rowSums(brier.rf.lasso)
+brier.rf.lasso4 = multiclass.Brier(brier.rf.lasso,y.test)
+brier.rf.lasso4
+```
+
+#GBM with lasso features
+```{r}
+set.seed(99)
+gbm.lasso = caret::train(x.lasso,y,'gbm',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+gbm.lasso.model4 = gbm.lasso
+predict.gbm.lasso = predict(gbm.lasso,x.lasso.test)
+table.gbm.lasso = table(predict.gbm.lasso,y.test)
+gbm.lasso4 = confusionMatrix(table.gbm.lasso)
+gbm.lasso4
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.gbm.lasso = predict(gbm.lasso,newdata = x.lasso.test, type="prob")
+brier.gbm.lasso = (brier.gbm.lasso)/rowSums(brier.gbm.lasso)
+brier.gbm.lasso4 = multiclass.Brier(brier.gbm.lasso,y.test)
+brier.gbm.lasso4
+```
+
+#KNN
+```{r}
+set.seed(99)
+knn.lasso = caret::train(x.lasso,y,'knn',trControl=trainControl(method='repeatedcv',number=5, repeats = 3),tuneGrid = expand.grid(k=c(3,6,9,12,15)))
+predict.knn.lasso = predict(knn.lasso,x.lasso.test)
+table.knn.lasso = table(predict.knn.lasso,y.test)
+knn.lasso4 = confusionMatrix(table.knn.lasso)
+knn.lasso4
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.knn.lasso = predict(knn.lasso,newdata = x.lasso.test, type="prob")
+brier.knn.lasso = (brier.knn.lasso)/rowSums(brier.knn.lasso)
+brier.knn.lasso4 = multiclass.Brier(brier.knn.lasso,y.test)
+brier.knn.lasso4
+```
+
+#SVM
+```{r}
+set.seed(99)
+svm.lasso = caret::train(x.lasso,y,'svmLinear2',trControl=trainControl(method='repeatedcv',number=5, repeats = 3,classProbs = TRUE))
+svm.lasso.model4 = svm.lasso
+predict.svm.lasso = predict(svm.lasso,x.lasso.test)
+table.svm.lasso = table(predict.svm.lasso,y.test)
+svm.lasso4 = confusionMatrix(table.svm.lasso)
+svm.lasso4
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.svm.lasso = predict(svm.lasso,newdata = x.lasso.test, type="prob")
+brier.svm.lasso = (brier.svm.lasso)/rowSums(brier.svm.lasso)
+brier.svm.lasso4 = multiclass.Brier(brier.svm.lasso,y.test)
+brier.svm.lasso4
+```
+
+#Neural Net
+```{r}
+set.seed(99)
+nnet.lasso = caret::train(x.lasso,y,'nnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3),tuneGrid = expand.grid(decay = c(1,0.5,0,1e-1,1e-4),size = c(1, 3, 5, 7)))
+nnet.lasso.model4 = nnet.lasso
+predict.nnet.lasso = predict(nnet.lasso,x.lasso.test)
+table.nnet.lasso = table(predict.nnet.lasso,y.test)
+nnet.lasso4 = confusionMatrix(table.nnet.lasso)
+nnet.lasso4
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.nnet.lasso = predict(nnet.lasso,newdata = x.lasso.test, type="prob")
+brier.nnet.lasso = (brier.nnet.lasso)/rowSums(brier.nnet.lasso)
+brier.nnet.lasso4 = multiclass.Brier(brier.nnet.lasso,y.test)
+brier.nnet.lasso4
+```
+
+
+
+
+#/////CV fold 5 for Lasso features/////
+
+```{r}
+trainData5 = subtype_edata[trainRowNumbers$Resample05,]
+testData5 = subtype_edata[-trainRowNumbers$Resample05,]
+```
+```{r}
+#Make our test and train data
+x=data.matrix(trainData5[, 2:9285])
+y= trainData5$SUBTYPE
+y = as.factor(y)
+x.test= data.matrix(testData5[, 2:9285])
+y.test = testData5$SUBTYPE
+y.test = as.factor(y.test)
+```
+
+# glmNET LASSO - Optimal performance on individual classification (Grouped data assessment not shown)
+
+```{r}
+set.seed(99)
+lasso.10fold = cv.glmnet(x,y,family="multinomial", nfolds=10)
+lasso.10fold.model5 = lasso.10fold
+predict.lasso.10fold = predict(lasso.10fold, x.test, type="class")
+table.lasso.10fold = table(predict.lasso.10fold, y.test)
+full.lasso5 = confusionMatrix(table.lasso.10fold)
+full.lasso5
+```
+```{r}
+#Brier Score for Lasso
+brier.lasso = predict(lasso.10fold, x.test, type="response")
+brier.lasso = (brier.lasso)/rowSums(brier.lasso)
+brier.lasso.full5 = multiclass.Brier(brier.lasso,y.test)
+brier.lasso.full5
+```
+#Extract features
+```{r}
+coef.lasso.10fold = coef(lasso.10fold, s="lambda.1se")
+```
+```{r}
+featuresextracted.lasso = as.data.frame(x) %>% dplyr::select(coef.lasso.10fold[["STAD_CIN"]]@i,coef.lasso.10fold[["STAD_EBV"]]@i,coef.lasso.10fold[["STAD_GS"]]@i,coef.lasso.10fold[["STAD_MSI"]]@i)
+
+x.lasso = as.matrix(featuresextracted.lasso)
+x.lassoTCGA5 = x.lasso
+
+featuresextracted.lasso.test = as.data.frame(x.test) %>% dplyr::select(coef.lasso.10fold[["STAD_CIN"]]@i,coef.lasso.10fold[["STAD_EBV"]]@i,coef.lasso.10fold[["STAD_GS"]]@i,coef.lasso.10fold[["STAD_MSI"]]@i)
+
+x.lasso.test = as.matrix(featuresextracted.lasso.test)
+x.lasso.testTCGA5 = x.lasso.test
+```
+
+#Lasso with lasso features
+```{r}
+set.seed(99)
+lasso.lasso = caret::train(x.lasso,y,'glmnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+lasso.lasso.model5 = lasso.lasso
+predict.lasso.lasso = predict(lasso.lasso,x.lasso.test)
+table.lasso.lasso = table(predict.lasso.lasso,y.test)
+lasso.lasso5 = confusionMatrix(table.lasso.lasso, mode = "everything")
+lasso.lasso5
+```
+```{r}
+#Brier Score for Lasso
+brier.lasso.lasso = predict(lasso.lasso, x.lasso.test, type="prob")
+brier.lasso.lasso = (brier.lasso.lasso)/rowSums(brier.lasso.lasso)
+brier.lasso.lasso5 = multiclass.Brier(brier.lasso.lasso,y.test)
+brier.lasso.lasso5
+```
+#Naive Bayes with lasso features
+
+```{r,warning=FALSE}
+set.seed(99)
+nb.lasso = caret::train(x.lasso,y,'naive_bayes',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+nb.lasso.model5 = nb.lasso
+predict.nb.lasso = predict(nb.lasso$finalModel,x.lasso.test)
+table.nb.lasso = table(predict.nb.lasso,y.test)
+nb.lasso5 = confusionMatrix(table.nb.lasso)
+nb.lasso5
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.nb.lasso = predict(nb.lasso,newdata = x.lasso.test, type="prob")
+brier.nb.lasso = (brier.nb.lasso)/rowSums(brier.nb.lasso)
+brier.nb.lasso5 = multiclass.Brier(brier.nb.lasso,y.test)
+brier.nb.lasso5
+```
+
+#RF with lasso features
+```{r}
+set.seed(99)
+rf.lasso = caret::train(x.lasso,y,'rf',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+rf.lasso.model5 = rf.lasso
+predict.rf.lasso = predict(rf.lasso,x.lasso.test)
+table.rf.lasso = table(predict.rf.lasso,y.test)
+rf.lasso5 = confusionMatrix(table.rf.lasso)
+rf.lasso5
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.rf.lasso = predict(rf.lasso,newdata = x.lasso.test, type="prob")
+brier.rf.lasso = (brier.rf.lasso)/rowSums(brier.rf.lasso)
+brier.rf.lasso5 = multiclass.Brier(brier.rf.lasso,y.test)
+brier.rf.lasso5
+```
+
+#GBM with lasso features
+```{r}
+set.seed(99)
+gbm.lasso = caret::train(x.lasso,y,'gbm',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+gbm.lasso.model5 = gbm.lasso
+predict.gbm.lasso = predict(gbm.lasso,x.lasso.test)
+table.gbm.lasso = table(predict.gbm.lasso,y.test)
+gbm.lasso5 = confusionMatrix(table.gbm.lasso)
+gbm.lasso5
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.gbm.lasso = predict(gbm.lasso,newdata = x.lasso.test, type="prob")
+brier.gbm.lasso = (brier.gbm.lasso)/rowSums(brier.gbm.lasso)
+brier.gbm.lasso5 = multiclass.Brier(brier.gbm.lasso,y.test)
+brier.gbm.lasso5
+```
+
+#KNN
+```{r}
+set.seed(99)
+knn.lasso = caret::train(x.lasso,y,'knn',trControl=trainControl(method='repeatedcv',number=5, repeats = 3),tuneGrid = expand.grid(k=c(3,6,9,12,15)))
+knn.lasso.model5 = knn.lasso
+predict.knn.lasso = predict(knn.lasso,x.lasso.test)
+table.knn.lasso = table(predict.knn.lasso,y.test)
+knn.lasso5 = confusionMatrix(table.knn.lasso)
+knn.lasso5
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.knn.lasso = predict(knn.lasso,newdata = x.lasso.test, type="prob")
+brier.knn.lasso = (brier.knn.lasso)/rowSums(brier.knn.lasso)
+brier.knn.lasso5 = multiclass.Brier(brier.knn.lasso,y.test)
+brier.knn.lasso5
+```
+#SVM
+```{r}
+set.seed(99)
+svm.lasso = caret::train(x.lasso,y,'svmLinear2',trControl=trainControl(method='repeatedcv',number=5, repeats = 3,classProbs = TRUE))
+svm.lasso.model5 = svm.lasso
+predict.svm.lasso = predict(svm.lasso,x.lasso.test)
+table.svm.lasso = table(predict.svm.lasso,y.test)
+svm.lasso5 = confusionMatrix(table.svm.lasso)
+svm.lasso5
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.svm.lasso = predict(svm.lasso,newdata = x.lasso.test, type="prob")
+brier.svm.lasso = (brier.svm.lasso)/rowSums(brier.svm.lasso)
+brier.svm.lasso5 = multiclass.Brier(brier.svm.lasso,y.test)
+brier.svm.lasso5
+```
+#Neural Net
+```{r}
+set.seed(99)
+nnet.lasso = caret::train(x.lasso,y,'nnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3),tuneGrid = expand.grid(decay = c(1,0.5,0,1e-1,1e-4),size = c(1, 3, 5, 7)))
+nnet.lasso.model5 = nnet.lasso
+predict.nnet.lasso = predict(nnet.lasso,x.lasso.test)
+table.nnet.lasso = table(predict.nnet.lasso,y.test)
+nnet.lasso5 = confusionMatrix(table.nnet.lasso)
+nnet.lasso5
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.nnet.lasso = predict(nnet.lasso,newdata = x.lasso.test, type="prob")
+brier.nnet.lasso = (brier.nnet.lasso)/rowSums(brier.nnet.lasso)
+brier.nnet.lasso5 = multiclass.Brier(brier.nnet.lasso,y.test)
+brier.nnet.lasso5
+```
+
+#/////CV fold 6 for Lasso features/////
+
+```{r}
+trainData6 = subtype_edata[trainRowNumbers$Resample06,]
+testData6 = subtype_edata[-trainRowNumbers$Resample06,]
+```
+```{r}
+#Make our test and train data
+x=data.matrix(trainData6[, 2:9285])
+y= trainData6$SUBTYPE
+y = as.factor(y)
+x.test= data.matrix(testData6[, 2:9285])
+y.test = testData6$SUBTYPE
+y.test = as.factor(y.test)
+```
+
+# glmNET LASSO - Optimal performance on individual classification (Grouped data assessment not shown)
+
+```{r}
+set.seed(99)
+lasso.10fold = cv.glmnet(x,y,family="multinomial", nfolds=10)
+lasso.10fold.model6 = lasso.10fold
+predict.lasso.10fold = predict(lasso.10fold, x.test, type="class")
+table.lasso.10fold = table(predict.lasso.10fold, y.test)
+full.lasso6 = confusionMatrix(table.lasso.10fold)
+full.lasso6
+```
+```{r}
+#Brier Score for Lasso
+brier.lasso = predict(lasso.10fold, x.test, type="response")
+brier.lasso = (brier.lasso)/rowSums(brier.lasso)
+brier.lasso.full6 = multiclass.Brier(brier.lasso,y.test)
+brier.lasso.full6
+```
+#Extract features
+```{r}
+coef.lasso.10fold = coef(lasso.10fold, s="lambda.1se")
+```
+```{r}
+featuresextracted.lasso = as.data.frame(x) %>% dplyr::select(coef.lasso.10fold[["STAD_CIN"]]@i,coef.lasso.10fold[["STAD_EBV"]]@i,coef.lasso.10fold[["STAD_GS"]]@i,coef.lasso.10fold[["STAD_MSI"]]@i)
+
+x.lasso = as.matrix(featuresextracted.lasso)
+x.lassoTCGA6 = x.lasso
+
+featuresextracted.lasso.test = as.data.frame(x.test) %>% dplyr::select(coef.lasso.10fold[["STAD_CIN"]]@i,coef.lasso.10fold[["STAD_EBV"]]@i,coef.lasso.10fold[["STAD_GS"]]@i,coef.lasso.10fold[["STAD_MSI"]]@i)
+
+x.lasso.test = as.matrix(featuresextracted.lasso.test)
+x.lasso.testTCGA6 = x.lasso.test
+```
+
+#Lasso with lasso features
+```{r}
+set.seed(99)
+lasso.lasso = caret::train(x.lasso,y,'glmnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+lasso.lasso.model6 = lasso.lasso
+predict.lasso.lasso = predict(lasso.lasso,x.lasso.test)
+table.lasso.lasso = table(predict.lasso.lasso,y.test)
+lasso.lasso6 = confusionMatrix(table.lasso.lasso, mode = "everything")
+lasso.lasso6
+```
+```{r}
+#Brier Score for Lasso
+brier.lasso.lasso = predict(lasso.lasso, x.lasso.test, type="prob")
+brier.lasso.lasso = (brier.lasso.lasso)/rowSums(brier.lasso.lasso)
+brier.lasso.lasso6 = multiclass.Brier(brier.lasso.lasso,y.test)
+brier.lasso.lasso6
+```
+#Naive Bayes with lasso features
+
+```{r,warning=FALSE}
+set.seed(99)
+nb.lasso = caret::train(x.lasso,y,'naive_bayes',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+nb.lasso.model6 = nb.lasso
+predict.nb.lasso = predict(nb.lasso$finalModel,x.lasso.test)
+table.nb.lasso = table(predict.nb.lasso,y.test)
+nb.lasso6 = confusionMatrix(table.nb.lasso)
+nb.lasso6
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.nb.lasso = predict(nb.lasso,newdata = x.lasso.test, type="prob")
+brier.nb.lasso = (brier.nb.lasso)/rowSums(brier.nb.lasso)
+brier.nb.lasso6 = multiclass.Brier(brier.nb.lasso,y.test)
+brier.nb.lasso6
+```
+
+#RF with lasso features
+```{r}
+set.seed(99)
+rf.lasso = caret::train(x.lasso,y,'rf',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+rf.lasso.model6 = rf.lasso
+predict.rf.lasso = predict(rf.lasso,x.lasso.test)
+table.rf.lasso = table(predict.rf.lasso,y.test)
+rf.lasso6 = confusionMatrix(table.rf.lasso)
+rf.lasso6
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.rf.lasso = predict(rf.lasso,newdata = x.lasso.test, type="prob")
+brier.rf.lasso = (brier.rf.lasso)/rowSums(brier.rf.lasso)
+brier.rf.lasso6 = multiclass.Brier(brier.rf.lasso,y.test)
+brier.rf.lasso6
+```
+
+#GBM with lasso features
+```{r}
+set.seed(99)
+gbm.lasso = caret::train(x.lasso,y,'gbm',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+gbm.lasso.model6 = gbm.lasso
+predict.gbm.lasso = predict(gbm.lasso,x.lasso.test)
+table.gbm.lasso = table(predict.gbm.lasso,y.test)
+gbm.lasso6 = confusionMatrix(table.gbm.lasso)
+gbm.lasso6
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.gbm.lasso = predict(gbm.lasso,newdata = x.lasso.test, type="prob")
+brier.gbm.lasso = (brier.gbm.lasso)/rowSums(brier.gbm.lasso)
+brier.gbm.lasso6 = multiclass.Brier(brier.gbm.lasso,y.test)
+brier.gbm.lasso6
+```
+
+#KNN
+```{r}
+set.seed(99)
+knn.lasso = caret::train(x.lasso,y,'knn',trControl=trainControl(method='repeatedcv',number=5, repeats = 3),tuneGrid = expand.grid(k=c(3,6,9,12,15)))
+knn.lasso.model6 = knn.lasso
+predict.knn.lasso = predict(knn.lasso,x.lasso.test)
+table.knn.lasso = table(predict.knn.lasso,y.test)
+knn.lasso6 = confusionMatrix(table.knn.lasso)
+knn.lasso6
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.knn.lasso = predict(knn.lasso,newdata = x.lasso.test, type="prob")
+brier.knn.lasso = (brier.knn.lasso)/rowSums(brier.knn.lasso)
+brier.knn.lasso6 = multiclass.Brier(brier.knn.lasso,y.test)
+brier.knn.lasso6
+```
+
+#SVM
+```{r}
+set.seed(99)
+svm.lasso = caret::train(x.lasso,y,'svmLinear2',trControl=trainControl(method='repeatedcv',number=5, repeats = 3,classProbs = TRUE))
+svm.lasso.model6 = svm.lasso
+predict.svm.lasso = predict(svm.lasso,x.lasso.test)
+table.svm.lasso = table(predict.svm.lasso,y.test)
+svm.lasso6 = confusionMatrix(table.svm.lasso)
+svm.lasso6
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.svm.lasso = predict(svm.lasso,newdata = x.lasso.test, type="prob")
+brier.svm.lasso = (brier.svm.lasso)/rowSums(brier.svm.lasso)
+brier.svm.lasso6 = multiclass.Brier(brier.svm.lasso,y.test)
+brier.svm.lasso6
+```
+#Neural Net
+```{r}
+set.seed(99)
+nnet.lasso = caret::train(x.lasso,y,'nnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3),tuneGrid = expand.grid(decay = c(1,0.5,0,1e-1,1e-4),size = c(1, 3, 5, 7)))
+nnet.lasso.model6 = nnet.lasso
+predict.nnet.lasso = predict(nnet.lasso,x.lasso.test)
+table.nnet.lasso = table(predict.nnet.lasso,y.test)
+nnet.lasso6 = confusionMatrix(table.nnet.lasso)
+nnet.lasso6
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.nnet.lasso = predict(nnet.lasso,newdata = x.lasso.test, type="prob")
+brier.nnet.lasso = (brier.nnet.lasso)/rowSums(brier.nnet.lasso)
+brier.nnet.lasso6 = multiclass.Brier(brier.nnet.lasso,y.test)
+brier.nnet.lasso6
+```
+
+#/////CV fold 7 for Lasso features/////
+
+```{r}
+trainData7 = subtype_edata[trainRowNumbers$Resample07,]
+testData7 = subtype_edata[-trainRowNumbers$Resample07,]
+```
+```{r}
+#Make our test and train data
+x=data.matrix(trainData7[, 2:9285])
+y= trainData7$SUBTYPE
+y = as.factor(y)
+x.test= data.matrix(testData7[, 2:9285])
+y.test = testData7$SUBTYPE
+y.test = as.factor(y.test)
+```
+
+# glmNET LASSO - Optimal performance on individual classification (Grouped data assessment not shown)
+
+```{r}
+set.seed(99)
+lasso.10fold = cv.glmnet(x,y,family="multinomial", nfolds=10)
+lasso.10fold.model7 = lasso.10fold
+predict.lasso.10fold = predict(lasso.10fold, x.test, type="class")
+table.lasso.10fold = table(predict.lasso.10fold, y.test)
+full.lasso7 = confusionMatrix(table.lasso.10fold)
+full.lasso7
+```
+```{r}
+#Brier Score for Lasso
+brier.lasso = predict(lasso.10fold, x.test, type="response")
+brier.lasso = (brier.lasso)/rowSums(brier.lasso)
+brier.lasso.full7 = multiclass.Brier(brier.lasso,y.test)
+brier.lasso.full7
+```
+#Extract features
+```{r}
+coef.lasso.10fold = coef(lasso.10fold, s="lambda.1se")
+```
+```{r}
+featuresextracted.lasso = as.data.frame(x) %>% dplyr::select(coef.lasso.10fold[["STAD_CIN"]]@i,coef.lasso.10fold[["STAD_EBV"]]@i,coef.lasso.10fold[["STAD_GS"]]@i,coef.lasso.10fold[["STAD_MSI"]]@i)
+
+x.lasso = as.matrix(featuresextracted.lasso)
+x.lassoTCGA7 = x.lasso
+
+featuresextracted.lasso.test = as.data.frame(x.test) %>% dplyr::select(coef.lasso.10fold[["STAD_CIN"]]@i,coef.lasso.10fold[["STAD_EBV"]]@i,coef.lasso.10fold[["STAD_GS"]]@i,coef.lasso.10fold[["STAD_MSI"]]@i)
+
+x.lasso.test = as.matrix(featuresextracted.lasso.test)
+x.lasso.testTCGA7 = x.lasso.test
+```
+
+#Lasso with lasso features
+```{r}
+set.seed(99)
+lasso.lasso = caret::train(x.lasso,y,'glmnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+lasso.lasso.model7 = lasso.lasso
+predict.lasso.lasso = predict(lasso.lasso,x.lasso.test)
+table.lasso.lasso = table(predict.lasso.lasso,y.test)
+lasso.lasso7 = confusionMatrix(table.lasso.lasso, mode = "everything")
+lasso.lasso7
+```
+```{r}
+#Brier Score for Lasso
+brier.lasso.lasso = predict(lasso.lasso, x.lasso.test, type="prob")
+brier.lasso.lasso = (brier.lasso.lasso)/rowSums(brier.lasso.lasso)
+brier.lasso.lasso7 = multiclass.Brier(brier.lasso.lasso,y.test)
+brier.lasso.lasso7
+```
+#Naive Bayes with lasso features
+```{r,warning=FALSE}
+set.seed(99)
+nb.lasso = caret::train(x.lasso,y,'naive_bayes',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+nb.lasso.model7 = nb.lasso
+predict.nb.lasso = predict(nb.lasso$finalModel,x.lasso.test)
+table.nb.lasso = table(predict.nb.lasso,y.test)
+nb.lasso7 = confusionMatrix(table.nb.lasso)
+nb.lasso7
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.nb.lasso = predict(nb.lasso,newdata = x.lasso.test, type="prob")
+brier.nb.lasso = (brier.nb.lasso)/rowSums(brier.nb.lasso)
+brier.nb.lasso7 = multiclass.Brier(brier.nb.lasso,y.test)
+brier.nb.lasso7
+```
+
+#RF with lasso features
+```{r}
+set.seed(99)
+rf.lasso = caret::train(x.lasso,y,'rf',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+rf.lasso.model7 = rf.lasso
+predict.rf.lasso = predict(rf.lasso,x.lasso.test)
+table.rf.lasso = table(predict.rf.lasso,y.test)
+rf.lasso7 = confusionMatrix(table.rf.lasso)
+rf.lasso7
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.rf.lasso = predict(rf.lasso,newdata = x.lasso.test, type="prob")
+brier.rf.lasso = (brier.rf.lasso)/rowSums(brier.rf.lasso)
+brier.rf.lasso7 = multiclass.Brier(brier.rf.lasso,y.test)
+brier.rf.lasso7
+```
+
+#GBM with lasso features
+```{r}
+set.seed(99)
+gbm.lasso = caret::train(x.lasso,y,'gbm',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+gbm.lasso.model7 = gbm.lasso
+predict.gbm.lasso = predict(gbm.lasso,x.lasso.test)
+table.gbm.lasso = table(predict.gbm.lasso,y.test)
+gbm.lasso7 = confusionMatrix(table.gbm.lasso)
+gbm.lasso7
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.gbm.lasso = predict(gbm.lasso,newdata = x.lasso.test, type="prob")
+brier.gbm.lasso = (brier.gbm.lasso)/rowSums(brier.gbm.lasso)
+brier.gbm.lasso7 = multiclass.Brier(brier.gbm.lasso,y.test)
+brier.gbm.lasso7
+```
+
+#KNN
+```{r}
+set.seed(99)
+knn.lasso = caret::train(x.lasso,y,'knn',trControl=trainControl(method='repeatedcv',number=5, repeats = 3),tuneGrid = expand.grid(k=c(3,6,9,12,15)))
+knn.lasso.model7 = knn.lasso
+predict.knn.lasso = predict(knn.lasso,x.lasso.test)
+table.knn.lasso = table(predict.knn.lasso,y.test)
+knn.lasso7 = confusionMatrix(table.knn.lasso)
+knn.lasso7
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.knn.lasso = predict(knn.lasso,newdata = x.lasso.test, type="prob")
+brier.knn.lasso = (brier.knn.lasso)/rowSums(brier.knn.lasso)
+brier.knn.lasso7 = multiclass.Brier(brier.knn.lasso,y.test)
+brier.knn.lasso7
+```
+
+#SVM
+```{r}
+set.seed(99)
+svm.lasso = caret::train(x.lasso,y,'svmLinear2',trControl=trainControl(method='repeatedcv',number=5, repeats = 3,classProbs = TRUE))
+svm.lasso.model7 = svm.lasso
+predict.svm.lasso = predict(svm.lasso,x.lasso.test)
+table.svm.lasso = table(predict.svm.lasso,y.test)
+svm.lasso7 = confusionMatrix(table.svm.lasso)
+svm.lasso7
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.svm.lasso = predict(svm.lasso,newdata = x.lasso.test, type="prob")
+brier.svm.lasso = (brier.svm.lasso)/rowSums(brier.svm.lasso)
+brier.svm.lasso7 = multiclass.Brier(brier.svm.lasso,y.test)
+brier.svm.lasso7
+```
+#Neural Net
+```{r}
+set.seed(99)
+nnet.lasso = caret::train(x.lasso,y,'nnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3),tuneGrid = expand.grid(decay = c(1,0.5,0,1e-1,1e-4),size = c(1, 3, 5, 7)))
+nnet.lasso.model7 = nnet.lasso
+predict.nnet.lasso = predict(nnet.lasso,x.lasso.test)
+table.nnet.lasso = table(predict.nnet.lasso,y.test)
+nnet.lasso7 = confusionMatrix(table.nnet.lasso)
+nnet.lasso7
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.nnet.lasso = predict(nnet.lasso,newdata = x.lasso.test, type="prob")
+brier.nnet.lasso = (brier.nnet.lasso)/rowSums(brier.nnet.lasso)
+brier.nnet.lasso7 = multiclass.Brier(brier.nnet.lasso,y.test)
+brier.nnet.lasso7
+```
+
+#/////CV fold 8 for Lasso features/////
+
+```{r}
+trainData8 = subtype_edata[trainRowNumbers$Resample08,]
+testData8 = subtype_edata[-trainRowNumbers$Resample08,]
+```
+```{r}
+#Make our test and train data
+x=data.matrix(trainData8[, 2:9285])
+y= trainData8$SUBTYPE
+y = as.factor(y)
+x.test= data.matrix(testData8[, 2:9285])
+y.test = testData8$SUBTYPE
+y.test = as.factor(y.test)
+```
+
+# glmNET LASSO - Optimal performance on individual classification (Grouped data assessment not shown)
+
+```{r}
+set.seed(99)
+lasso.10fold = cv.glmnet(x,y,family="multinomial", nfolds=10)
+lasso.10fold.model8 = lasso.10fold
+predict.lasso.10fold = predict(lasso.10fold, x.test, type="class")
+table.lasso.10fold = table(predict.lasso.10fold, y.test)
+full.lasso8 = confusionMatrix(table.lasso.10fold)
+full.lasso8
+```
+```{r}
+#Brier Score for Lasso
+brier.lasso = predict(lasso.10fold, x.test, type="response")
+brier.lasso = (brier.lasso)/rowSums(brier.lasso)
+brier.lasso.full8 = multiclass.Brier(brier.lasso,y.test)
+brier.lasso.full8
+```
+#Extract features
+```{r}
+coef.lasso.10fold = coef(lasso.10fold, s="lambda.1se")
+```
+```{r}
+featuresextracted.lasso = as.data.frame(x) %>% dplyr::select(coef.lasso.10fold[["STAD_CIN"]]@i,coef.lasso.10fold[["STAD_EBV"]]@i,coef.lasso.10fold[["STAD_GS"]]@i,coef.lasso.10fold[["STAD_MSI"]]@i)
+
+x.lasso = as.matrix(featuresextracted.lasso)
+x.lassoTCGA8 = x.lasso
+
+featuresextracted.lasso.test = as.data.frame(x.test) %>% dplyr::select(coef.lasso.10fold[["STAD_CIN"]]@i,coef.lasso.10fold[["STAD_EBV"]]@i,coef.lasso.10fold[["STAD_GS"]]@i,coef.lasso.10fold[["STAD_MSI"]]@i)
+
+x.lasso.test = as.matrix(featuresextracted.lasso.test)
+x.lasso.testTCGA8 = x.lasso.test
+```
+
+#Lasso with lasso features
+```{r}
+set.seed(99)
+lasso.lasso = caret::train(x.lasso,y,'glmnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+lasso.lasso.model8 = lasso.lasso
+predict.lasso.lasso = predict(lasso.lasso,x.lasso.test)
+table.lasso.lasso = table(predict.lasso.lasso,y.test)
+lasso.lasso8 = confusionMatrix(table.lasso.lasso, mode = "everything")
+lasso.lasso8
+```
+```{r}
+#Brier Score for Lasso
+brier.lasso.lasso = predict(lasso.lasso, x.lasso.test, type="prob")
+brier.lasso.lasso = (brier.lasso.lasso)/rowSums(brier.lasso.lasso)
+brier.lasso.lasso8 = multiclass.Brier(brier.lasso.lasso,y.test)
+brier.lasso.lasso8
+```
+#Naive Bayes with lasso features
+
+```{r,warning=FALSE}
+set.seed(99)
+nb.lasso = caret::train(x.lasso,y,'naive_bayes',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+nb.lasso.model8 = nb.lasso
+predict.nb.lasso = predict(nb.lasso$finalModel,x.lasso.test)
+table.nb.lasso = table(predict.nb.lasso,y.test)
+nb.lasso8 = confusionMatrix(table.nb.lasso)
+nb.lasso8
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.nb.lasso = predict(nb.lasso,newdata = x.lasso.test, type="prob")
+brier.nb.lasso = (brier.nb.lasso)/rowSums(brier.nb.lasso)
+brier.nb.lasso8 = multiclass.Brier(brier.nb.lasso,y.test)
+brier.nb.lasso8
+```
+
+#RF with lasso features
+```{r}
+set.seed(99)
+rf.lasso = caret::train(x.lasso,y,'rf',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+rf.lasso.model8 = rf.lasso
+predict.rf.lasso = predict(rf.lasso,x.lasso.test)
+table.rf.lasso = table(predict.rf.lasso,y.test)
+rf.lasso8 = confusionMatrix(table.rf.lasso)
+rf.lasso8
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.rf.lasso = predict(rf.lasso,newdata = x.lasso.test, type="prob")
+brier.rf.lasso = (brier.rf.lasso)/rowSums(brier.rf.lasso)
+brier.rf.lasso8 = multiclass.Brier(brier.rf.lasso,y.test)
+brier.rf.lasso8
+```
+
+#GBM with lasso features
+```{r}
+set.seed(99)
+gbm.lasso = caret::train(x.lasso,y,'gbm',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+gbm.lasso.model8 = gbm.lasso
+predict.gbm.lasso = predict(gbm.lasso,x.lasso.test)
+table.gbm.lasso = table(predict.gbm.lasso,y.test)
+gbm.lasso8 = confusionMatrix(table.gbm.lasso)
+gbm.lasso8
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.gbm.lasso = predict(gbm.lasso,newdata = x.lasso.test, type="prob")
+brier.gbm.lasso = (brier.gbm.lasso)/rowSums(brier.gbm.lasso)
+brier.gbm.lasso8 = multiclass.Brier(brier.gbm.lasso,y.test)
+brier.gbm.lasso8
+```
+
+#KNN
+```{r}
+set.seed(99)
+knn.lasso = caret::train(x.lasso,y,'knn',trControl=trainControl(method='repeatedcv',number=5, repeats = 3),tuneGrid = expand.grid(k=c(3,6,9,12,15)))
+knn.lasso.model8 = knn.lasso
+predict.knn.lasso = predict(knn.lasso,x.lasso.test)
+table.knn.lasso = table(predict.knn.lasso,y.test)
+knn.lasso8 = confusionMatrix(table.knn.lasso)
+knn.lasso8
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.knn.lasso = predict(knn.lasso,newdata = x.lasso.test, type="prob")
+brier.knn.lasso = (brier.knn.lasso)/rowSums(brier.knn.lasso)
+brier.knn.lasso8 = multiclass.Brier(brier.knn.lasso,y.test)
+brier.knn.lasso8
+```
+
+#SVM
+```{r}
+set.seed(99)
+svm.lasso = caret::train(x.lasso,y,'svmLinear2',trControl=trainControl(method='repeatedcv',number=5, repeats = 3,classProbs = TRUE))
+svm.lasso.model8 = svm.lasso
+predict.svm.lasso = predict(svm.lasso,x.lasso.test)
+table.svm.lasso = table(predict.svm.lasso,y.test)
+svm.lasso8 = confusionMatrix(table.svm.lasso)
+svm.lasso8
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.svm.lasso = predict(svm.lasso,newdata = x.lasso.test, type="prob")
+brier.svm.lasso = (brier.svm.lasso)/rowSums(brier.svm.lasso)
+brier.svm.lasso8 = multiclass.Brier(brier.svm.lasso,y.test)
+brier.svm.lasso8
+```
+#Neural Net
+```{r}
+set.seed(99)
+nnet.lasso = caret::train(x.lasso,y,'nnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3),tuneGrid = expand.grid(decay = c(1,0.5,0,1e-1,1e-4),size = c(1, 3, 5, 7)))
+nnet.lasso.model8 = nnet.lasso
+predict.nnet.lasso = predict(nnet.lasso,x.lasso.test)
+table.nnet.lasso = table(predict.nnet.lasso,y.test)
+nnet.lasso8 = confusionMatrix(table.nnet.lasso)
+nnet.lasso8
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.nnet.lasso = predict(nnet.lasso,newdata = x.lasso.test, type="prob")
+brier.nnet.lasso = (brier.nnet.lasso)/rowSums(brier.nnet.lasso)
+brier.nnet.lasso8 = multiclass.Brier(brier.nnet.lasso,y.test)
+brier.nnet.lasso8
+```
+
+#/////CV fold 9 for Lasso features/////
+
+```{r}
+trainData9 = subtype_edata[trainRowNumbers$Resample09,]
+testData9 = subtype_edata[-trainRowNumbers$Resample09,]
+```
+```{r}
+#Make our test and train data
+x=data.matrix(trainData9[, 2:9285])
+y= trainData9$SUBTYPE
+y = as.factor(y)
+x.test= data.matrix(testData9[, 2:9285])
+y.test = testData9$SUBTYPE
+y.test = as.factor(y.test)
+```
+
+# glmNET LASSO - Optimal performance on individual classification (Grouped data assessment not shown)
+
+```{r}
+set.seed(99)
+lasso.10fold = cv.glmnet(x,y,family="multinomial", nfolds=10)
+lasso.10fold.model9 = lasso.10fold
+predict.lasso.10fold = predict(lasso.10fold, x.test, type="class")
+table.lasso.10fold = table(predict.lasso.10fold, y.test)
+full.lasso9 = confusionMatrix(table.lasso.10fold)
+full.lasso9
+```
+```{r}
+#Brier Score for Lasso
+brier.lasso = predict(lasso.10fold, x.test, type="response")
+brier.lasso = (brier.lasso)/rowSums(brier.lasso)
+brier.lasso.full9 = multiclass.Brier(brier.lasso,y.test)
+brier.lasso.full9
+```
+#Extract features
+```{r}
+coef.lasso.10fold = coef(lasso.10fold, s="lambda.1se")
+```
+```{r}
+featuresextracted.lasso = as.data.frame(x) %>% dplyr::select(coef.lasso.10fold[["STAD_CIN"]]@i,coef.lasso.10fold[["STAD_EBV"]]@i,coef.lasso.10fold[["STAD_GS"]]@i,coef.lasso.10fold[["STAD_MSI"]]@i)
+
+x.lasso = as.matrix(featuresextracted.lasso)
+x.lassoTCGA9 = x.lasso
+
+featuresextracted.lasso.test = as.data.frame(x.test) %>% dplyr::select(coef.lasso.10fold[["STAD_CIN"]]@i,coef.lasso.10fold[["STAD_EBV"]]@i,coef.lasso.10fold[["STAD_GS"]]@i,coef.lasso.10fold[["STAD_MSI"]]@i)
+
+x.lasso.test = as.matrix(featuresextracted.lasso.test)
+x.lasso.testTCGA9 = x.lasso.test
+```
+
+#Lasso with lasso features
+```{r}
+set.seed(99)
+lasso.lasso = caret::train(x.lasso,y,'glmnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+lasso.lasso.model9 = lasso.lasso
+predict.lasso.lasso = predict(lasso.lasso,x.lasso.test)
+table.lasso.lasso = table(predict.lasso.lasso,y.test)
+lasso.lasso9 = confusionMatrix(table.lasso.lasso, mode = "everything")
+lasso.lasso9
+```
+```{r}
+#Brier Score for Lasso
+brier.lasso.lasso = predict(lasso.lasso, x.lasso.test, type="prob")
+brier.lasso.lasso = (brier.lasso.lasso)/rowSums(brier.lasso.lasso)
+brier.lasso.lasso9 = multiclass.Brier(brier.lasso.lasso,y.test)
+brier.lasso.lasso9
+```
+#Naive Bayes with lasso features
+
+```{r,warning=FALSE}
+set.seed(99)
+nb.lasso = caret::train(x.lasso,y,'naive_bayes',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+nb.lasso.model9 = nb.lasso
+predict.nb.lasso = predict(nb.lasso$finalModel,x.lasso.test)
+table.nb.lasso = table(predict.nb.lasso,y.test)
+nb.lasso9 = confusionMatrix(table.nb.lasso)
+nb.lasso9
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.nb.lasso = predict(nb.lasso,newdata = x.lasso.test, type="prob")
+brier.nb.lasso = (brier.nb.lasso)/rowSums(brier.nb.lasso)
+brier.nb.lasso9 = multiclass.Brier(brier.nb.lasso,y.test)
+brier.nb.lasso9
+```
+
+#RF with lasso features
+```{r}
+set.seed(99)
+rf.lasso = caret::train(x.lasso,y,'rf',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+rf.lasso.model9 = rf.lasso
+predict.rf.lasso = predict(rf.lasso,x.lasso.test)
+table.rf.lasso = table(predict.rf.lasso,y.test)
+rf.lasso9 = confusionMatrix(table.rf.lasso)
+rf.lasso9
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.rf.lasso = predict(rf.lasso,newdata = x.lasso.test, type="prob")
+brier.rf.lasso = (brier.rf.lasso)/rowSums(brier.rf.lasso)
+brier.rf.lasso9 = multiclass.Brier(brier.rf.lasso,y.test)
+brier.rf.lasso9
+```
+
+#GBM with lasso features
+```{r}
+set.seed(99)
+gbm.lasso = caret::train(x.lasso,y,'gbm',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+gbm.lasso.model9 = gbm.lasso
+predict.gbm.lasso = predict(gbm.lasso,x.lasso.test)
+table.gbm.lasso = table(predict.gbm.lasso,y.test)
+gbm.lasso9 = confusionMatrix(table.gbm.lasso)
+gbm.lasso9
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.gbm.lasso = predict(gbm.lasso,newdata = x.lasso.test, type="prob")
+brier.gbm.lasso = (brier.gbm.lasso)/rowSums(brier.gbm.lasso)
+brier.gbm.lasso9 = multiclass.Brier(brier.gbm.lasso,y.test)
+brier.gbm.lasso9
+```
+
+#KNN
+```{r}
+set.seed(99)
+knn.lasso = caret::train(x.lasso,y,'knn',trControl=trainControl(method='repeatedcv',number=5, repeats = 3),tuneGrid = expand.grid(k=c(3,6,9,12,15)))
+knn.lasso.model9 = knn.lasso
+predict.knn.lasso = predict(knn.lasso,x.lasso.test)
+table.knn.lasso = table(predict.knn.lasso,y.test)
+knn.lasso9 = confusionMatrix(table.knn.lasso)
+knn.lasso9
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.knn.lasso = predict(knn.lasso,newdata = x.lasso.test, type="prob")
+brier.knn.lasso = (brier.knn.lasso)/rowSums(brier.knn.lasso)
+brier.knn.lasso9 = multiclass.Brier(brier.knn.lasso,y.test)
+brier.knn.lasso9
+```
+
+#SVM
+```{r}
+set.seed(99)
+svm.lasso = caret::train(x.lasso,y,'svmLinear2',trControl=trainControl(method='repeatedcv',number=5, repeats = 3,classProbs = TRUE))
+svm.lasso.model9 = svm.lasso
+predict.svm.lasso = predict(svm.lasso,x.lasso.test)
+table.svm.lasso = table(predict.svm.lasso,y.test)
+svm.lasso9 = confusionMatrix(table.svm.lasso)
+svm.lasso9
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.svm.lasso = predict(svm.lasso,newdata = x.lasso.test, type="prob")
+brier.svm.lasso = (brier.svm.lasso)/rowSums(brier.svm.lasso)
+brier.svm.lasso9 = multiclass.Brier(brier.svm.lasso,y.test)
+brier.svm.lasso9
+```
+#Neural Net
+```{r}
+set.seed(99)
+nnet.lasso = caret::train(x.lasso,y,'nnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3),tuneGrid = expand.grid(decay = c(1,0.5,0,1e-1,1e-4),size = c(1, 3, 5, 7)))
+nnet.lasso.model9 = nnet.lasso
+predict.nnet.lasso = predict(nnet.lasso,x.lasso.test)
+table.nnet.lasso = table(predict.nnet.lasso,y.test)
+nnet.lasso9 = confusionMatrix(table.nnet.lasso)
+nnet.lasso9
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.nnet.lasso = predict(nnet.lasso,newdata = x.lasso.test, type="prob")
+brier.nnet.lasso = (brier.nnet.lasso)/rowSums(brier.nnet.lasso)
+brier.nnet.lasso9 = multiclass.Brier(brier.nnet.lasso,y.test)
+brier.nnet.lasso9
+```
+
+#/////CV fold 10 for Lasso features/////
+
+```{r}
+trainData10 = subtype_edata[trainRowNumbers$Resample10,]
+testData10 = subtype_edata[-trainRowNumbers$Resample10,]
+```
+```{r}
+#Make our test and train data
+x=data.matrix(trainData10[, 2:9285])
+y= trainData10$SUBTYPE
+y = as.factor(y)
+x.test= data.matrix(testData10[, 2:9285])
+y.test = testData10$SUBTYPE
+y.test = as.factor(y.test)
+```
+
+# glmNET LASSO - Optimal performance on individual classification (Grouped data assessment not shown)
+
+```{r}
+set.seed(99)
+lasso.10fold = cv.glmnet(x,y,family="multinomial", nfolds=10)
+lasso.10fold.model10 = lasso.10fold
+predict.lasso.10fold = predict(lasso.10fold, x.test, type="class")
+table.lasso.10fold = table(predict.lasso.10fold, y.test)
+full.lasso10 = confusionMatrix(table.lasso.10fold)
+full.lasso10
+```
+```{r}
+#Brier Score for Lasso
+brier.lasso = predict(lasso.10fold, x.test, type="response")
+brier.lasso = (brier.lasso)/rowSums(brier.lasso)
+brier.lasso.full10 = multiclass.Brier(brier.lasso,y.test)
+brier.lasso.full10
+```
+#Extract features
+```{r}
+coef.lasso.10fold = coef(lasso.10fold, s="lambda.1se")
+```
+```{r}
+featuresextracted.lasso = as.data.frame(x) %>% dplyr::select(coef.lasso.10fold[["STAD_CIN"]]@i,coef.lasso.10fold[["STAD_EBV"]]@i,coef.lasso.10fold[["STAD_GS"]]@i,coef.lasso.10fold[["STAD_MSI"]]@i)
+
+x.lasso = as.matrix(featuresextracted.lasso)
+x.lassoTCGA10 = x.lasso
+
+featuresextracted.lasso.test = as.data.frame(x.test) %>% dplyr::select(coef.lasso.10fold[["STAD_CIN"]]@i,coef.lasso.10fold[["STAD_EBV"]]@i,coef.lasso.10fold[["STAD_GS"]]@i,coef.lasso.10fold[["STAD_MSI"]]@i)
+
+x.lasso.test = as.matrix(featuresextracted.lasso.test)
+x.lasso.testTCGA10 = x.lasso.test
+```
+
+#Lasso with lasso features
+```{r}
+set.seed(99)
+lasso.lasso = caret::train(x.lasso,y,'glmnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+lasso.lasso.model10 = lasso.lasso
+predict.lasso.lasso = predict(lasso.lasso,x.lasso.test)
+table.lasso.lasso = table(predict.lasso.lasso,y.test)
+lasso.lasso10 = confusionMatrix(table.lasso.lasso, mode = "everything")
+lasso.lasso10
+```
+```{r}
+#Brier Score for Lasso
+brier.lasso.lasso = predict(lasso.lasso, x.lasso.test, type="prob")
+brier.lasso.lasso = (brier.lasso.lasso)/rowSums(brier.lasso.lasso)
+brier.lasso.lasso10 = multiclass.Brier(brier.lasso.lasso,y.test)
+brier.lasso.lasso10
+```
+#Naive Bayes with lasso features
+
+```{r,warning=FALSE}
+set.seed(99)
+nb.lasso = caret::train(x.lasso,y,'naive_bayes',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+nb.lasso.model10 = nb.lasso
+predict.nb.lasso = predict(nb.lasso$finalModel,x.lasso.test)
+table.nb.lasso = table(predict.nb.lasso,y.test)
+nb.lasso10 = confusionMatrix(table.nb.lasso)
+nb.lasso10
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.nb.lasso = predict(nb.lasso,newdata = x.lasso.test, type="prob")
+brier.nb.lasso = (brier.nb.lasso)/rowSums(brier.nb.lasso)
+brier.nb.lasso10 = multiclass.Brier(brier.nb.lasso,y.test)
+brier.nb.lasso10
+```
+
+#RF with lasso features
+```{r}
+set.seed(99)
+rf.lasso = caret::train(x.lasso,y,'rf',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+rf.lasso.model10 = rf.lasso
+predict.rf.lasso = predict(rf.lasso,x.lasso.test)
+table.rf.lasso = table(predict.rf.lasso,y.test)
+rf.lasso10 = confusionMatrix(table.rf.lasso)
+rf.lasso10
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.rf.lasso = predict(rf.lasso,newdata = x.lasso.test, type="prob")
+brier.rf.lasso = (brier.rf.lasso)/rowSums(brier.rf.lasso)
+brier.rf.lasso10 = multiclass.Brier(brier.rf.lasso,y.test)
+brier.rf.lasso10
+```
+
+#GBM with lasso features
+```{r}
+set.seed(99)
+gbm.lasso = caret::train(x.lasso,y,'gbm',trControl=trainControl(method='repeatedcv',number=5, repeats = 3))
+gbm.lasso.model10 = gbm.lasso
+predict.gbm.lasso = predict(gbm.lasso,x.lasso.test)
+table.gbm.lasso = table(predict.gbm.lasso,y.test)
+gbm.lasso10 = confusionMatrix(table.gbm.lasso)
+gbm.lasso10
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.gbm.lasso = predict(gbm.lasso,newdata = x.lasso.test, type="prob")
+brier.gbm.lasso = (brier.gbm.lasso)/rowSums(brier.gbm.lasso)
+brier.gbm.lasso10 = multiclass.Brier(brier.gbm.lasso,y.test)
+brier.gbm.lasso10
+```
+
+#KNN
+```{r}
+set.seed(99)
+knn.lasso = caret::train(x.lasso,y,'knn',trControl=trainControl(method='repeatedcv',number=5, repeats = 3),tuneGrid = expand.grid(k=c(3,6,9,12,15)))
+knn.lasso.model10 = knn.lasso
+predict.knn.lasso = predict(knn.lasso,x.lasso.test)
+table.knn.lasso = table(predict.knn.lasso,y.test)
+knn.lasso10 = confusionMatrix(table.knn.lasso)
+knn.lasso10
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.knn.lasso = predict(knn.lasso,newdata = x.lasso.test, type="prob")
+brier.knn.lasso = (brier.knn.lasso)/rowSums(brier.knn.lasso)
+brier.knn.lasso10 = multiclass.Brier(brier.knn.lasso,y.test)
+brier.knn.lasso10
+```
+
+#SVM
+```{r}
+set.seed(99)
+svm.lasso = caret::train(x.lasso,y,'svmLinear2',trControl=trainControl(method='repeatedcv',number=5, repeats = 3,classProbs = TRUE))
+svm.lasso.model10 = svm.lasso
+predict.svm.lasso = predict(svm.lasso,x.lasso.test)
+table.svm.lasso = table(predict.svm.lasso,y.test)
+svm.lasso10 = confusionMatrix(table.svm.lasso)
+svm.lasso10
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.svm.lasso = predict(svm.lasso,newdata = x.lasso.test, type="prob")
+brier.svm.lasso = (brier.svm.lasso)/rowSums(brier.svm.lasso)
+brier.svm.lasso10 = multiclass.Brier(brier.svm.lasso,y.test)
+brier.svm.lasso10
+```
+#Neural Net
+```{r}
+set.seed(99)
+nnet.lasso = caret::train(x.lasso,y,'nnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3),tuneGrid = expand.grid(decay = c(1,0.5,0,1e-1,1e-4),size = c(1, 3, 5, 7)))
+nnet.lasso.model10 = nnet.lasso
+predict.nnet.lasso = predict(nnet.lasso,x.lasso.test)
+table.nnet.lasso = table(predict.nnet.lasso,y.test)
+nnet.lasso10 = confusionMatrix(table.nnet.lasso)
+nnet.lasso10
+```
+```{r,warning=FALSE}
+#Brier Score
+brier.nnet.lasso = predict(nnet.lasso,newdata = x.lasso.test, type="prob")
+brier.nnet.lasso = (brier.nnet.lasso)/rowSums(brier.nnet.lasso)
+brier.nnet.lasso10 = multiclass.Brier(brier.nnet.lasso,y.test)
+brier.nnet.lasso10
+```
+
+#FINISHED LASSO FEATURES MODEL SELECTION. 
+
+
+#Compile Model Metrics
+#Lasso compile
+```{r}
+#Full lasso
+total_list <- lapply(mget(ls(pattern = 'full.lasso\\d+')), function(x) {
+         data <- x$overall
+         data[setdiff(names(data), c("AccuracyLower","AccuracyUpper", "AccuracyNull", "AccuracyPValue", "McnemarPValue" ))]
+})
+tcga_models1 <- data.frame(matrix(unlist(total_list), nrow=length(total_list), byrow=TRUE))
+colnames(tcga_models1) <- c("Accuracy", "Kappa")
+tcga_models1$Brier_score = mget(ls(pattern = 'brier.lasso.full\\d+'))
+tcga_models1$Model <- 'Full Elastic Net'
+tcga_models1$FS <- 'Full'
+remove(total_list)
+
+
+#Lasso lasso
+total_list <- mget(ls(pattern = 'lasso.lasso\\d+'))
+total_list <- lapply(total_list, '[','overall')
+total_list = total_list[-c(1:10)]
+tcga_models2 <- data.frame(matrix(unlist(total_list), nrow=length(total_list), byrow=TRUE))
+colnames(tcga_models2) <- c("Accuracy", "Kappa")
+tcga_models2$Brier_score = mget(ls(pattern = 'brier.lasso.lasso\\d+'))
+tcga_models2$Model <- 'Elastic Net Elastic Net'
+tcga_models2$FS <- 'Elastic Net'
+tcga_models2 = dplyr::select(tcga_models2, c("Accuracy", "Kappa", "Brier_score", "Model", "FS"))
+remove(total_list)
+
+#NB lasso
+total_list <- mget(ls(pattern = 'nb.lasso\\d+'))
+total_list <- lapply(total_list, '[','overall')
+total_list = total_list[-c(1:10)]
+tcga_models3 <- data.frame(matrix(unlist(total_list), nrow=length(total_list), byrow=TRUE))
+colnames(tcga_models3) <- c("Accuracy", "Kappa")
+tcga_models3$Brier_score = mget(ls(pattern = 'brier.nb.lasso\\d+'))
+tcga_models3$Model <- 'NB Elastic Net'
+tcga_models3$FS <- 'Elastic Net'
+tcga_models3 = dplyr::select(tcga_models3, c("Accuracy", "Kappa", "Brier_score", "Model", "FS"))
+remove(total_list)
+
+
+#RF lasso
+total_list <- mget(ls(pattern = 'rf.lasso\\d+'))
+total_list <- lapply(total_list, '[','overall')
+total_list = total_list[-c(1:10)]
+tcga_models4 <- data.frame(matrix(unlist(total_list), nrow=length(total_list), byrow=TRUE))
+colnames(tcga_models4) <- c("Accuracy", "Kappa")
+tcga_models4$Brier_score = mget(ls(pattern = 'brier.rf.lasso\\d+'))
+tcga_models4$Model <- 'RF Elastic Net'
+tcga_models4$FS <- 'Elastic Net'
+tcga_models4 = dplyr::select(tcga_models4, c("Accuracy", "Kappa", "Brier_score", "Model", "FS"))
+remove(total_list)
+
+#GBM lasso
+total_list <- mget(ls(pattern = 'gbm.lasso\\d+'))
+total_list <- lapply(total_list, '[','overall')
+total_list = total_list[-c(1:10)]
+tcga_models5 <- data.frame(matrix(unlist(total_list), nrow=length(total_list), byrow=TRUE))
+colnames(tcga_models5) <- c("Accuracy", "Kappa")
+tcga_models5$Brier_score = mget(ls(pattern = 'brier.gbm.lasso\\d+'))
+tcga_models5$Model <- 'GBM Elastic Net'
+tcga_models5$FS <- 'Elastic Net'
+tcga_models5 = dplyr::select(tcga_models5, c("Accuracy", "Kappa", "Brier_score", "Model", "FS"))
+remove(total_list)
+
+#KNN lasso
+total_list <- mget(ls(pattern = 'knn.lasso\\d+'))
+total_list <- lapply(total_list, '[','overall')
+total_list = total_list[-c(1:10)]
+tcga_models6 <- data.frame(matrix(unlist(total_list), nrow=length(total_list), byrow=TRUE))
+colnames(tcga_models6) <- c("Accuracy", "Kappa")
+tcga_models6$Brier_score = mget(ls(pattern = 'brier.knn.lasso\\d+'))
+tcga_models6$Model <- 'KNN Elastic Net'
+tcga_models6$FS <- 'Elastic Net'
+tcga_models6 = dplyr::select(tcga_models6, c("Accuracy", "Kappa", "Brier_score", "Model", "FS"))
+remove(total_list)
+
+#SVM lasso
+total_list <- mget(ls(pattern = 'svm.lasso\\d+'))
+total_list <- lapply(total_list, '[','overall')
+total_list = total_list[-c(1:10)]
+tcga_models7 <- data.frame(matrix(unlist(total_list), nrow=length(total_list), byrow=TRUE))
+colnames(tcga_models7) <- c("Accuracy", "Kappa")
+tcga_models7$Brier_score = mget(ls(pattern = 'brier.svm.lasso\\d+'))
+tcga_models7$Model <- 'SVM Elastic Net'
+tcga_models7$FS <- 'Elastic Net'
+tcga_models7 = dplyr::select(tcga_models7, c("Accuracy", "Kappa", "Brier_score", "Model", "FS"))
+remove(total_list)
+
+#NNET lasso
+total_list <- mget(ls(pattern = 'nnet.lasso\\d+'))
+total_list <- lapply(total_list, '[','overall')
+total_list = total_list[-c(1:10)]
+tcga_models8 <- data.frame(matrix(unlist(total_list), nrow=length(total_list), byrow=TRUE))
+colnames(tcga_models8) <- c("Accuracy", "Kappa")
+tcga_models8$Brier_score = mget(ls(pattern = 'brier.nnet.lasso\\d+'))
+tcga_models8$Model <- 'NNET Elastic Net'
+tcga_models8$FS <- 'Elastic Net'
+tcga_models8 = dplyr::select(tcga_models8, c("Accuracy", "Kappa", "Brier_score", "Model", "FS"))
+remove(total_list)
+```
+
+
+#Compile 
+```{r}
+#compile tcga models
+total_list <- mget(ls(pattern = 'tcga_models\\d+'))
+compile_tcga_model_1se = do.call(rbind, total_list)
+compile_tcga_model_1se$Brier_score = unlist(compile_tcga_model_1se$Brier_score)
+
+compile_tcga_model_long_1se = melt(compile_tcga_model_1se, id.vars=c("Model", "FS"))
+```
+
+#Export 
+```{r}
+write.csv(compile_tcga_model_1se,file = "compile_tcga_model_1se.csv")
+write.csv(compile_tcga_model_long_1se,file = "compile_tcga_model_long_1se.csv")
+```
+
+#Compile per type Model Metrics
+#Lasso compile
+```{r}
+#Full lasso
+total_list <- lapply(mget(ls(pattern = 'full.lasso\\d+')), function(x) {
+         data <- x$byClass})
+tcga_class1 = melt(total_list)
+tcga_class1 = summarySE(tcga_class1, measurevar=c("value") , groupvars=c("Var1", "Var2"))
+tcga_class1 = dplyr::select(tcga_class1, -c("N","se", "ci"))
+tcga_class1 = reshape(tcga_class1,
+           idvar = "Var1",
+           timevar = "Var2",
+           direction = "wide")
+tcga_class1$Model = "Full Elastic Net"
+remove(total_list)
+
+#Lasso lasso
+total_list <- mget(ls(pattern = 'lasso.lasso\\d+'))
+total_list <- lapply(total_list, '[','byClass')
+total_list = total_list[-c(1:10)]
+tcga_class2 = melt(total_list)
+tcga_class2 = summarySE(tcga_class2, measurevar=c("value") , groupvars=c("Var1", "Var2"))
+tcga_class2 = dplyr::select(tcga_class2, -c("N","se", "ci"))
+tcga_class2 = reshape(tcga_class2,
+           idvar = "Var1",
+           timevar = "Var2",
+           direction = "wide")
+tcga_class2$Model = "Elastic Net Elastic Net"
+remove(total_list)
+
+#NB lasso
+total_list <- mget(ls(pattern = 'nb.lasso\\d+'))
+total_list <- lapply(total_list, '[','byClass')
+total_list = total_list[-c(1:10)]
+tcga_class3 = melt(total_list)
+tcga_class3 = summarySE(tcga_class3, measurevar=c("value") , groupvars=c("Var1", "Var2"))
+tcga_class3 = dplyr::select(tcga_class3, -c("N","se", "ci"))
+tcga_class3 = reshape(tcga_class3,
+           idvar = "Var1",
+           timevar = "Var2",
+           direction = "wide")
+tcga_class3$Model = "NB Elastic Net"
+remove(total_list)
+
+
+#RF lasso
+total_list <- mget(ls(pattern = 'rf.lasso\\d+'))
+total_list <- lapply(total_list, '[','byClass')
+total_list = total_list[-c(1:10)]
+tcga_class4 = melt(total_list)
+tcga_class4 = summarySE(tcga_class4, measurevar=c("value") , groupvars=c("Var1", "Var2"))
+tcga_class4 = dplyr::select(tcga_class4, -c("N","se", "ci"))
+tcga_class4 = reshape(tcga_class4,
+           idvar = "Var1",
+           timevar = "Var2",
+           direction = "wide")
+tcga_class4$Model = "RF Elastic Net"
+remove(total_list)
+
+
+#GBM lasso
+total_list <- mget(ls(pattern = 'gbm.lasso\\d+'))
+total_list <- lapply(total_list, '[','byClass')
+total_list = total_list[-c(1:10)]
+tcga_class5 = melt(total_list)
+tcga_class5 = summarySE(tcga_class5, measurevar=c("value") , groupvars=c("Var1", "Var2"))
+tcga_class5 = dplyr::select(tcga_class5, -c("N","se", "ci"))
+tcga_class5 = reshape(tcga_class5,
+           idvar = "Var1",
+           timevar = "Var2",
+           direction = "wide")
+tcga_class5$Model = "GBM Elastic Net"
+remove(total_list)
+
+
+#KNN lasso
+total_list <- mget(ls(pattern = 'knn.lasso\\d+'))
+total_list <- lapply(total_list, '[','byClass')
+total_list = total_list[-c(1:10)]
+tcga_class6 = melt(total_list)
+tcga_class6 = summarySE(tcga_class6, measurevar=c("value") , groupvars=c("Var1", "Var2"))
+tcga_class6 = dplyr::select(tcga_class6, -c("N","se", "ci"))
+tcga_class6 = reshape(tcga_class6,
+           idvar = "Var1",
+           timevar = "Var2",
+           direction = "wide")
+tcga_class6$Model = "KNN Elastic Net"
+remove(total_list)
+
+#SVM lasso
+total_list <- mget(ls(pattern = 'svm.lasso\\d+'))
+total_list <- lapply(total_list, '[','byClass')
+total_list = total_list[-c(1:10)]
+tcga_class7 = melt(total_list)
+tcga_class7 = summarySE(tcga_class7, measurevar=c("value") , groupvars=c("Var1", "Var2"))
+tcga_class7 = dplyr::select(tcga_class7, -c("N","se", "ci"))
+tcga_class7 = reshape(tcga_class7,
+           idvar = "Var1",
+           timevar = "Var2",
+           direction = "wide")
+tcga_class7$Model = "SVM Elastic Net"
+remove(total_list)
+
+
+#NNET lasso
+total_list <- mget(ls(pattern = 'nnet.lasso\\d+'))
+total_list <- lapply(total_list, '[','byClass')
+total_list = total_list[-c(1:10)]
+tcga_class8 = melt(total_list)
+tcga_class8 = summarySE(tcga_class8, measurevar=c("value") , groupvars=c("Var1", "Var2"))
+tcga_class8 = dplyr::select(tcga_class8, -c("N","se", "ci"))
+tcga_class8 = reshape(tcga_class8,
+           idvar = "Var1",
+           timevar = "Var2",
+           direction = "wide")
+tcga_class8$Model = "NNET Elastic Net"
+remove(total_list)
+```
+
+```{r}
+total_list <- mget(ls(pattern = 'tcga_class\\d+'))
+compile_tcga_class_1se = do.call(rbind, total_list)
+```
+
+#Export data dataframe
+```{r}
+write.csv(compile_tcga_class_1se,file = "compile_tcga_class_1se.csv")
+```
+

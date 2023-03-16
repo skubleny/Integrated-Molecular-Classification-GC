@@ -1,0 +1,2335 @@
+---
+title: "TME calibration"
+author: "Daniel Skubleny"
+date: "28/09/2021"
+output: html_document
+---
+
+
+#Plan
+```{r}
+#Plan is to have calibration metrics (conf-MCE, conf-ECE, cw-ECE, multiclass brier and cw-brier) for each fold for the basic uncalibrated pseudo-probabilities and 3 other models (1 = dirichlet calibrated with multinom and decay, 2 = multinomial glmnet with ElasticNet regularization (tuned for lambda and alpha), 3 = dirichlet with L2 regularization (tuned for lambda). We will use logloss as a metric in keeping with the dirichlet paper 
+```
+#NOTE on PLATT SCALING
+
+```{r}
+#Could not perform platt scaling due to fitted probabilities of 0 and 1 and failure of binomial glm to converge. Thus we once again applied L2 regularization to the binary logistic regression. There will be no multinomial logistic regression. 
+```
+#CV1////////
+```{r}
+trainData_tme1 = subtype_tme[trainRowNumbers_tme$Resample01,]
+testData_tme1 = subtype_tme[-trainRowNumbers_tme$Resample01,]
+#Make our test and train data
+```
+```{r}
+x= data.matrix(trainData_tme1[, 3:9286])
+y= trainData_tme1$TMEscore_binary
+y = as.factor(y)
+x.test= data.matrix(testData_tme1[, 3:9286])
+y.test = testData_tme1$TMEscore_binary
+y.test = as.factor(y.test)
+```
+
+
+```{r}
+#Train data from model after feature selection
+set.seed(99)
+class_1_train = dplyr::select(trainData_tme1, "TMEscore_binary")
+cal_1_train = predict(rf.gbm.tme.model1,newdata = gbm.tme.train1, type="prob")
+cal_1_train_class = predict(rf.gbm.tme.model1,newdata = gbm.tme.train1, type="raw")
+class_1_train = tibble::rownames_to_column(class_1_train, "patient_id")
+cal_1_train = tibble::rownames_to_column(cal_1_train, "patient_id")
+cal_data1_train = merge(class_1_train,cal_1_train, by="patient_id")
+cal_data1_train = tibble::column_to_rownames(cal_data1_train, "patient_id")
+cal_data_train = cal_data1_train
+cal_data_train$TMEscore_binary = as.factor(cal_data_train$TMEscore_binary)
+cal_data_train$High[cal_data_train$High == 0] <- 2.225074e-308
+
+train_prob1 = cal_1_train[,2:3]
+train_prob1[train_prob1 == 0] <- 2.225074e-308
+train_prob1 = as.data.frame(train_prob1)
+```
+#Uncalibrated
+```{r}
+#Outer fold test data
+class_1 = dplyr::select(testData_tme1, "TMEscore_binary")
+cal_1 = predict(rf.gbm.tme.model1,newdata = gbm.tme.test1, type="prob")
+cal_1_class = predict(rf.gbm.tme.model1,newdata = gbm.tme.test1, type="raw")
+class_1 = tibble::rownames_to_column(class_1, "patient_id")
+cal_1 = tibble::rownames_to_column(cal_1, "patient_id")
+cal_data1 = merge(class_1,cal_1, by="patient_id")
+cal_data1 = tibble::column_to_rownames(cal_data1, "patient_id")
+cal_data = cal_data1
+cal_data$TMEscore_binary = as.factor(cal_data$TMEscore_binary)
+
+test_prob1 = cal_1[,2:3]
+test_prob1[test_prob1 == 0] <- 2.225074e-308
+test_prob1 = as.data.frame(test_prob1) #log transformed input to calibration models
+```
+#Dirichlet logloss
+```{r}
+set.seed(99)
+dirichlet_cal = caret::train(train_prob1,as.factor(class_1_train[,2]),'glmnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3, classProbs=TRUE, summaryFunction=mnLogLoss), metric = "logLoss",tuneGrid = expand.grid(alpha= 0 , lambda =c(1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1, 0, 1, 10, 100)))
+dirichlet_cal1 = dirichlet_cal
+```
+
+
+
+####ORGANIZE DATA CV1
+#Organize data output for Uncalibrated
+```{r}
+data_dir_cal = cal_1[,2:3]
+data_dir_cal$true_class = class_1[,2]
+data_dir_cal$pred_class = cal_1_class
+```
+```{r}
+data_dir_cal = as.data.frame(data_dir_cal)
+colnames(data_dir_cal)= c("High", "Low", "true_class", "pred_class")
+data_dir_cal$true_class = as.factor(data_dir_cal$true_class)
+data_dir_cal$true_class <- factor(data_dir_cal$true_class, levels = c("Low", "High"))
+
+data_dir_cal[data_dir_cal == 0] <- 2.225074e-308
+
+data_dir_cal$High_bin = cut(data_dir_cal$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+data_dir_cal$Low_bin = cut(data_dir_cal$Low, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+```
+```{r}
+data_dir_uncal1 = data_dir_cal
+```
+####conf_ece/conf_mce
+```{r}
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+uncal1_plotdata = conf_ece_dir
+```
+#####Uncalibrated metrics
+```{r}
+conf_ece_uncal1 <- weighted.mean(absolute_diff, weight)
+conf_mce_uncal1 = max(absolute_diff)
+```
+```{r}
+set.seed(99)
+acc_uncal1 = confusionMatrix(as.factor(class_1[,2]), as.factor(cal_1_class))
+
+dirichlet_cal_prob = (cal_1[,2:3])/rowSums(cal_1[,2:3])
+brier.uncal_prob1 = multiclass.Brier(dirichlet_cal_prob,as.factor(class_1[,2]))
+```
+
+
+#Dirichlet predictions
+```{r}
+dirichlet_cal_1_class = predict(dirichlet_cal,newdata = test_prob1, type="raw")
+dirichlet_cal_1_prob = predict(dirichlet_cal,newdata = test_prob1, type="prob")
+```
+#####Organize data output for Dirichlet
+```{r}
+data_dir_cal = dirichlet_cal_1_prob
+data_dir_cal$true_class = class_1[,2]
+data_dir_cal$pred_class = dirichlet_cal_1_class
+```
+```{r}
+data_dir_cal = as.data.frame(data_dir_cal)
+colnames(data_dir_cal)= c("High", "Low", "true_class", "pred_class")
+data_dir_cal$true_class = as.factor(data_dir_cal$true_class)
+data_dir_cal$true_class <- factor(data_dir_cal$true_class, levels = c("Low", "High"))
+
+data_dir_cal$High_bin = cut(data_dir_cal$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+data_dir_cal$Low_bin = cut(data_dir_cal$Low, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+```
+```{r}
+data_dir_cal1 = data_dir_cal
+```
+####conf_ece/conf_mce
+```{r}
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+dir1_plotdata = conf_ece_dir
+```
+####Dirichlet metrics
+```{r}
+conf_ece_dir1 <- weighted.mean(absolute_diff, weight)
+conf_mce_dir1 = max(absolute_diff)
+```
+```{r}
+acc_dir1 = confusionMatrix(as.factor(class_1[,2]), as.factor(dirichlet_cal_1_class))
+
+#Brier
+dirichlet_cal_prob = (dirichlet_cal_1_prob)/rowSums(dirichlet_cal_1_prob)
+brier.dirichlet_cal_prob1 = multiclass.Brier(dirichlet_cal_prob,as.factor(class_1[,2]))
+```
+
+#CV2////////
+```{r}
+trainData_tme2 = subtype_tme[trainRowNumbers_tme$Resample02,]
+testData_tme2 = subtype_tme[-trainRowNumbers_tme$Resample02,]
+#Make our test and train data
+```
+```{r}
+x= data.matrix(trainData_tme2[, 3:9286])
+y= trainData_tme2$TMEscore_binary
+y = as.factor(y)
+x.test= data.matrix(testData_tme2[, 3:9286])
+y.test = testData_tme2$TMEscore_binary
+y.test = as.factor(y.test)
+```
+
+
+```{r}
+#Train data from model after feature selection
+set.seed(99)
+class_2_train = dplyr::select(trainData_tme2, "TMEscore_binary")
+cal_2_train = predict(rf.gbm.tme.model2,newdata = gbm.tme.train2, type="prob")
+cal_2_train_class = predict(rf.gbm.tme.model2,newdata = gbm.tme.train2, type="raw")
+class_2_train = tibble::rownames_to_column(class_2_train, "patient_id")
+cal_2_train = tibble::rownames_to_column(cal_2_train, "patient_id")
+cal_data2_train = merge(class_2_train,cal_2_train, by="patient_id")
+cal_data2_train = tibble::column_to_rownames(cal_data2_train, "patient_id")
+cal_data_train = cal_data2_train
+cal_data_train$TMEscore_binary = as.factor(cal_data_train$TMEscore_binary)
+cal_data_train$High[cal_data_train$High == 0] <- 2.225074e-308
+
+train_prob2 = cal_2_train[,2:3]
+train_prob2[train_prob2 == 0] <- 2.225074e-308
+train_prob2 = as.data.frame(train_prob2)
+```
+#Uncalibrated
+```{r}
+#Outer fold test data
+class_2 = dplyr::select(testData_tme2, "TMEscore_binary")
+cal_2 = predict(rf.gbm.tme.model2,newdata = gbm.tme.test2, type="prob")
+cal_2_class = predict(rf.gbm.tme.model2,newdata = gbm.tme.test2, type="raw")
+class_2 = tibble::rownames_to_column(class_2, "patient_id")
+cal_2 = tibble::rownames_to_column(cal_2, "patient_id")
+cal_data2 = merge(class_2,cal_2, by="patient_id")
+cal_data2 = tibble::column_to_rownames(cal_data2, "patient_id")
+cal_data = cal_data2
+cal_data$TMEscore_binary = as.factor(cal_data$TMEscore_binary)
+
+test_prob2 = cal_2[,2:3]
+test_prob2[test_prob2 == 0] <- 2.225074e-308
+test_prob2 = as.data.frame(test_prob2) #log transformed input to calibration models
+```
+#Dirichlet logloss
+```{r}
+set.seed(99)
+dirichlet_cal = caret::train(train_prob2,as.factor(class_2_train[,2]),'glmnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3, classProbs=TRUE, summaryFunction=mnLogLoss), metric = "logLoss",tuneGrid = expand.grid(alpha= 0 , lambda =c(1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1, 0, 1, 10, 100)))
+dirichlet_cal2 = dirichlet_cal
+```
+
+
+
+####ORGANIZE DATA 
+#Organize data output for Uncalibrated
+```{r}
+data_dir_cal = cal_2[,2:3]
+data_dir_cal$true_class = class_2[,2]
+data_dir_cal$pred_class = cal_2_class
+```
+```{r}
+data_dir_cal = as.data.frame(data_dir_cal)
+colnames(data_dir_cal)= c("High", "Low", "true_class", "pred_class")
+data_dir_cal$true_class = as.factor(data_dir_cal$true_class)
+data_dir_cal$true_class <- factor(data_dir_cal$true_class, levels = c("Low", "High"))
+
+data_dir_cal[data_dir_cal == 0] <- 2.225074e-308
+
+data_dir_cal$High_bin = cut(data_dir_cal$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+data_dir_cal$Low_bin = cut(data_dir_cal$Low, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+```
+```{r}
+data_dir_uncal2 = data_dir_cal
+```
+####conf_ece/conf_mce
+```{r}
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+uncal2_plotdata = conf_ece_dir
+```
+#####Uncalibrated metrics
+```{r}
+conf_ece_uncal2 <- weighted.mean(absolute_diff, weight)
+conf_mce_uncal2 = max(absolute_diff)
+```
+```{r}
+set.seed(99)
+acc_uncal2 = confusionMatrix(as.factor(class_2[,2]), as.factor(cal_2_class))
+
+dirichlet_cal_prob = (cal_2[,2:3])/rowSums(cal_2[,2:3])
+brier.uncal_prob2 = multiclass.Brier(dirichlet_cal_prob,as.factor(class_2[,2]))
+```
+
+
+#Dirichlet predictions
+```{r}
+dirichlet_cal_2_class = predict(dirichlet_cal,newdata = test_prob2, type="raw")
+dirichlet_cal_2_prob = predict(dirichlet_cal,newdata = test_prob2, type="prob")
+```
+#####Organize data output for Dirichlet
+```{r}
+data_dir_cal = dirichlet_cal_2_prob
+data_dir_cal$true_class = class_2[,2]
+data_dir_cal$pred_class = dirichlet_cal_2_class
+```
+```{r}
+data_dir_cal = as.data.frame(data_dir_cal)
+colnames(data_dir_cal)= c("High", "Low", "true_class", "pred_class")
+data_dir_cal$true_class = as.factor(data_dir_cal$true_class)
+data_dir_cal$true_class <- factor(data_dir_cal$true_class, levels = c("Low", "High"))
+
+data_dir_cal$High_bin = cut(data_dir_cal$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+data_dir_cal$Low_bin = cut(data_dir_cal$Low, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+```
+```{r}
+data_dir_cal2 = data_dir_cal
+```
+####conf_ece/conf_mce
+```{r}
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+dir2_plotdata = conf_ece_dir
+```
+####Dirichlet metrics
+```{r}
+conf_ece_dir2 <- weighted.mean(absolute_diff, weight)
+conf_mce_dir2 = max(absolute_diff)
+```
+```{r}
+acc_dir2 = confusionMatrix(as.factor(class_2[,2]), as.factor(dirichlet_cal_2_class))
+
+#Brier
+dirichlet_cal_prob = (dirichlet_cal_2_prob)/rowSums(dirichlet_cal_2_prob)
+brier.dirichlet_cal_prob2 = multiclass.Brier(dirichlet_cal_prob,as.factor(class_2[,2]))
+```
+
+#CV3////////
+```{r}
+trainData_tme3 = subtype_tme[trainRowNumbers_tme$Resample03,]
+testData_tme3 = subtype_tme[-trainRowNumbers_tme$Resample03,]
+#Make our test and train data
+```
+```{r}
+x= data.matrix(trainData_tme3[, 3:9286])
+y= trainData_tme3$TMEscore_binary
+y = as.factor(y)
+x.test= data.matrix(testData_tme3[, 3:9286])
+y.test = testData_tme3$TMEscore_binary
+y.test = as.factor(y.test)
+```
+
+
+```{r}
+#Train data from model after feature selection
+set.seed(99)
+class_3_train = dplyr::select(trainData_tme3, "TMEscore_binary")
+cal_3_train = predict(rf.gbm.tme.model3,newdata = gbm.tme.train3, type="prob")
+cal_3_train_class = predict(rf.gbm.tme.model3,newdata = gbm.tme.train3, type="raw")
+class_3_train = tibble::rownames_to_column(class_3_train, "patient_id")
+cal_3_train = tibble::rownames_to_column(cal_3_train, "patient_id")
+cal_data3_train = merge(class_3_train,cal_3_train, by="patient_id")
+cal_data3_train = tibble::column_to_rownames(cal_data3_train, "patient_id")
+cal_data_train = cal_data3_train
+cal_data_train$TMEscore_binary = as.factor(cal_data_train$TMEscore_binary)
+cal_data_train$High[cal_data_train$High == 0] <- 2.225074e-308
+
+train_prob3 = cal_3_train[,2:3]
+train_prob3[train_prob3 == 0] <- 2.225074e-308
+train_prob3 = as.data.frame(train_prob3)
+```
+#Uncalibrated
+```{r}
+#Outer fold test data
+class_3 = dplyr::select(testData_tme3, "TMEscore_binary")
+cal_3 = predict(rf.gbm.tme.model3,newdata = gbm.tme.test3, type="prob")
+cal_3_class = predict(rf.gbm.tme.model3,newdata = gbm.tme.test3, type="raw")
+class_3 = tibble::rownames_to_column(class_3, "patient_id")
+cal_3 = tibble::rownames_to_column(cal_3, "patient_id")
+cal_data3 = merge(class_3,cal_3, by="patient_id")
+cal_data3 = tibble::column_to_rownames(cal_data3, "patient_id")
+cal_data = cal_data3
+cal_data$TMEscore_binary = as.factor(cal_data$TMEscore_binary)
+
+test_prob3 = cal_3[,2:3]
+test_prob3[test_prob3 == 0] <- 2.225074e-308
+test_prob3 = as.data.frame(test_prob3) #log transformed input to calibration models
+```
+#Dirichlet logloss
+```{r}
+set.seed(99)
+dirichlet_cal = caret::train(train_prob3,as.factor(class_3_train[,2]),'glmnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3, classProbs=TRUE, summaryFunction=mnLogLoss), metric = "logLoss",tuneGrid = expand.grid(alpha= 0 , lambda =c(1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1, 0, 1, 10, 100)))
+dirichlet_cal3 = dirichlet_cal
+```
+
+
+
+####ORGANIZE DATA 
+#Organize data output for Uncalibrated
+```{r}
+data_dir_cal = cal_3[,2:3]
+data_dir_cal$true_class = class_3[,2]
+data_dir_cal$pred_class = cal_3_class
+```
+```{r}
+data_dir_cal = as.data.frame(data_dir_cal)
+colnames(data_dir_cal)= c("High", "Low", "true_class", "pred_class")
+data_dir_cal$true_class = as.factor(data_dir_cal$true_class)
+data_dir_cal$true_class <- factor(data_dir_cal$true_class, levels = c("Low", "High"))
+
+data_dir_cal[data_dir_cal == 0] <- 2.225074e-308
+
+data_dir_cal$High_bin = cut(data_dir_cal$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+data_dir_cal$Low_bin = cut(data_dir_cal$Low, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+```
+```{r}
+data_dir_uncal3 = data_dir_cal
+```
+####conf_ece/conf_mce
+```{r}
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+uncal3_plotdata = conf_ece_dir
+```
+#####Uncalibrated metrics
+```{r}
+conf_ece_uncal3 <- weighted.mean(absolute_diff, weight)
+conf_mce_uncal3 = max(absolute_diff)
+```
+```{r}
+set.seed(99)
+acc_uncal3 = confusionMatrix(as.factor(class_3[,2]), as.factor(cal_3_class))
+
+dirichlet_cal_prob = (cal_3[,2:3])/rowSums(cal_3[,2:3])
+brier.uncal_prob3 = multiclass.Brier(dirichlet_cal_prob,as.factor(class_3[,2]))
+```
+
+
+#Dirichlet predictions
+```{r}
+dirichlet_cal_3_class = predict(dirichlet_cal,newdata = test_prob3, type="raw")
+dirichlet_cal_3_prob = predict(dirichlet_cal,newdata = test_prob3, type="prob")
+```
+#####Organize data output for Dirichlet
+```{r}
+data_dir_cal = dirichlet_cal_3_prob
+data_dir_cal$true_class = class_3[,2]
+data_dir_cal$pred_class = dirichlet_cal_3_class
+```
+```{r}
+data_dir_cal = as.data.frame(data_dir_cal)
+colnames(data_dir_cal)= c("High", "Low", "true_class", "pred_class")
+data_dir_cal$true_class = as.factor(data_dir_cal$true_class)
+data_dir_cal$true_class <- factor(data_dir_cal$true_class, levels = c("Low", "High"))
+
+data_dir_cal$High_bin = cut(data_dir_cal$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+data_dir_cal$Low_bin = cut(data_dir_cal$Low, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+```
+```{r}
+data_dir_cal3 = data_dir_cal
+```
+####conf_ece/conf_mce
+```{r}
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+dir3_plotdata = conf_ece_dir
+```
+####Dirichlet metrics
+```{r}
+conf_ece_dir3 <- weighted.mean(absolute_diff, weight)
+conf_mce_dir3 = max(absolute_diff)
+```
+```{r}
+acc_dir3 = confusionMatrix(as.factor(class_3[,2]), as.factor(dirichlet_cal_3_class))
+
+#Brier
+dirichlet_cal_prob = (dirichlet_cal_3_prob)/rowSums(dirichlet_cal_3_prob)
+brier.dirichlet_cal_prob3 = multiclass.Brier(dirichlet_cal_prob,as.factor(class_3[,2]))
+```
+
+#CV4////////
+```{r}
+trainData_tme4 = subtype_tme[trainRowNumbers_tme$Resample04,]
+testData_tme4 = subtype_tme[-trainRowNumbers_tme$Resample04,]
+#Make our test and train data
+```
+```{r}
+x= data.matrix(trainData_tme4[, 3:9286])
+y= trainData_tme4$TMEscore_binary
+y = as.factor(y)
+x.test= data.matrix(testData_tme4[, 3:9286])
+y.test = testData_tme4$TMEscore_binary
+y.test = as.factor(y.test)
+```
+
+
+```{r}
+#Train data from model after feature selection
+set.seed(99)
+class_4_train = dplyr::select(trainData_tme4, "TMEscore_binary")
+cal_4_train = predict(rf.gbm.tme.model4,newdata = gbm.tme.train4, type="prob")
+cal_4_train_class = predict(rf.gbm.tme.model4,newdata = gbm.tme.train4, type="raw")
+class_4_train = tibble::rownames_to_column(class_4_train, "patient_id")
+cal_4_train = tibble::rownames_to_column(cal_4_train, "patient_id")
+cal_data4_train = merge(class_4_train,cal_4_train, by="patient_id")
+cal_data4_train = tibble::column_to_rownames(cal_data4_train, "patient_id")
+cal_data_train = cal_data4_train
+cal_data_train$TMEscore_binary = as.factor(cal_data_train$TMEscore_binary)
+cal_data_train$High[cal_data_train$High == 0] <- 2.225074e-308
+
+train_prob4 = cal_4_train[,2:3]
+train_prob4[train_prob4 == 0] <- 2.225074e-308
+train_prob4 = as.data.frame(train_prob4)
+```
+#Uncalibrated
+```{r}
+#Outer fold test data
+class_4 = dplyr::select(testData_tme4, "TMEscore_binary")
+cal_4 = predict(rf.gbm.tme.model4,newdata = gbm.tme.test4, type="prob")
+cal_4_class = predict(rf.gbm.tme.model4,newdata = gbm.tme.test4, type="raw")
+class_4 = tibble::rownames_to_column(class_4, "patient_id")
+cal_4 = tibble::rownames_to_column(cal_4, "patient_id")
+cal_data4 = merge(class_4,cal_4, by="patient_id")
+cal_data4 = tibble::column_to_rownames(cal_data4, "patient_id")
+cal_data = cal_data4
+cal_data$TMEscore_binary = as.factor(cal_data$TMEscore_binary)
+
+test_prob4 = cal_4[,2:3]
+test_prob4[test_prob4 == 0] <- 2.225074e-308
+test_prob4 = as.data.frame(test_prob4) #log transformed input to calibration models
+```
+#Dirichlet logloss
+```{r}
+set.seed(99)
+dirichlet_cal = caret::train(train_prob4,as.factor(class_4_train[,2]),'glmnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3, classProbs=TRUE, summaryFunction=mnLogLoss), metric = "logLoss",tuneGrid = expand.grid(alpha= 0 , lambda =c(1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1, 0, 1, 10, 100)))
+dirichlet_cal4 = dirichlet_cal
+```
+
+
+
+####ORGANIZE DATA CV1
+#Organize data output for Uncalibrated
+```{r}
+data_dir_cal = cal_4[,2:3]
+data_dir_cal$true_class = class_4[,2]
+data_dir_cal$pred_class = cal_4_class
+```
+```{r}
+data_dir_cal = as.data.frame(data_dir_cal)
+colnames(data_dir_cal)= c("High", "Low", "true_class", "pred_class")
+data_dir_cal$true_class = as.factor(data_dir_cal$true_class)
+data_dir_cal$true_class <- factor(data_dir_cal$true_class, levels = c("Low", "High"))
+
+data_dir_cal[data_dir_cal == 0] <- 2.225074e-308
+
+data_dir_cal$High_bin = cut(data_dir_cal$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+data_dir_cal$Low_bin = cut(data_dir_cal$Low, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+```
+```{r}
+data_dir_uncal4 = data_dir_cal
+```
+####conf_ece/conf_mce
+```{r}
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+uncal4_plotdata = conf_ece_dir
+```
+#####Uncalibrated metrics
+```{r}
+conf_ece_uncal4 <- weighted.mean(absolute_diff, weight)
+conf_mce_uncal4 = max(absolute_diff)
+```
+```{r}
+set.seed(99)
+acc_uncal4 = confusionMatrix(as.factor(class_4[,2]), as.factor(cal_4_class))
+
+dirichlet_cal_prob = (cal_4[,2:3])/rowSums(cal_4[,2:3])
+brier.uncal_prob4 = multiclass.Brier(dirichlet_cal_prob,as.factor(class_4[,2]))
+```
+
+
+#Dirichlet predictions
+```{r}
+dirichlet_cal_4_class = predict(dirichlet_cal,newdata = test_prob4, type="raw")
+dirichlet_cal_4_prob = predict(dirichlet_cal,newdata = test_prob4, type="prob")
+```
+#####Organize data output for Dirichlet
+```{r}
+data_dir_cal = dirichlet_cal_4_prob
+data_dir_cal$true_class = class_4[,2]
+data_dir_cal$pred_class = dirichlet_cal_4_class
+```
+```{r}
+data_dir_cal = as.data.frame(data_dir_cal)
+colnames(data_dir_cal)= c("High", "Low", "true_class", "pred_class")
+data_dir_cal$true_class = as.factor(data_dir_cal$true_class)
+data_dir_cal$true_class <- factor(data_dir_cal$true_class, levels = c("Low", "High"))
+
+data_dir_cal$High_bin = cut(data_dir_cal$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+data_dir_cal$Low_bin = cut(data_dir_cal$Low, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+```
+```{r}
+data_dir_cal4 = data_dir_cal
+```
+####conf_ece/conf_mce
+```{r}
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+dir4_plotdata = conf_ece_dir
+```
+####Dirichlet metrics
+```{r}
+conf_ece_dir4 <- weighted.mean(absolute_diff, weight)
+conf_mce_dir4 = max(absolute_diff)
+```
+```{r}
+acc_dir4 = confusionMatrix(as.factor(class_4[,2]), as.factor(dirichlet_cal_4_class))
+
+#Brier
+dirichlet_cal_prob = (dirichlet_cal_4_prob)/rowSums(dirichlet_cal_4_prob)
+brier.dirichlet_cal_prob4 = multiclass.Brier(dirichlet_cal_prob,as.factor(class_4[,2]))
+```
+
+#CV5////////
+```{r}
+trainData_tme5 = subtype_tme[trainRowNumbers_tme$Resample05,]
+testData_tme5 = subtype_tme[-trainRowNumbers_tme$Resample05,]
+#Make our test and train data
+```
+```{r}
+x= data.matrix(trainData_tme5[, 3:9286])
+y= trainData_tme5$TMEscore_binary
+y = as.factor(y)
+x.test= data.matrix(testData_tme5[, 3:9286])
+y.test = testData_tme5$TMEscore_binary
+y.test = as.factor(y.test)
+```
+
+
+```{r}
+#Train data from model after feature selection
+set.seed(99)
+class_5_train = dplyr::select(trainData_tme5, "TMEscore_binary")
+cal_5_train = predict(rf.gbm.tme.model5,newdata = gbm.tme.train5, type="prob")
+cal_5_train_class = predict(rf.gbm.tme.model5,newdata = gbm.tme.train5, type="raw")
+class_5_train = tibble::rownames_to_column(class_5_train, "patient_id")
+cal_5_train = tibble::rownames_to_column(cal_5_train, "patient_id")
+cal_data5_train = merge(class_5_train,cal_5_train, by="patient_id")
+cal_data5_train = tibble::column_to_rownames(cal_data5_train, "patient_id")
+cal_data_train = cal_data5_train
+cal_data_train$TMEscore_binary = as.factor(cal_data_train$TMEscore_binary)
+cal_data_train$High[cal_data_train$High == 0] <- 2.225074e-308
+
+train_prob5 = cal_5_train[,2:3]
+train_prob5[train_prob5 == 0] <- 2.225074e-308
+train_prob5 = as.data.frame(train_prob5)
+```
+#Uncalibrated
+```{r}
+#Outer fold test data
+class_5 = dplyr::select(testData_tme5, "TMEscore_binary")
+cal_5 = predict(rf.gbm.tme.model5,newdata = gbm.tme.test5, type="prob")
+cal_5_class = predict(rf.gbm.tme.model5,newdata = gbm.tme.test5, type="raw")
+class_5 = tibble::rownames_to_column(class_5, "patient_id")
+cal_5 = tibble::rownames_to_column(cal_5, "patient_id")
+cal_data5 = merge(class_5,cal_5, by="patient_id")
+cal_data5 = tibble::column_to_rownames(cal_data5, "patient_id")
+cal_data = cal_data1
+cal_data$TMEscore_binary = as.factor(cal_data$TMEscore_binary)
+
+test_prob5 = cal_5[,2:3]
+test_prob5[test_prob5 == 0] <- 2.225074e-308
+test_prob5 = as.data.frame(test_prob5) #log transformed input to calibration models
+```
+#Dirichlet logloss
+```{r}
+set.seed(99)
+dirichlet_cal = caret::train(train_prob5,as.factor(class_5_train[,2]),'glmnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3, classProbs=TRUE, summaryFunction=mnLogLoss), metric = "logLoss",tuneGrid = expand.grid(alpha= 0 , lambda =c(1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1, 0, 1, 10, 100)))
+dirichlet_cal5 = dirichlet_cal
+```
+
+
+
+####ORGANIZE DATA 
+#Organize data output for Uncalibrated
+```{r}
+data_dir_cal = cal_5[,2:3]
+data_dir_cal$true_class = class_5[,2]
+data_dir_cal$pred_class = cal_5_class
+```
+```{r}
+data_dir_cal = as.data.frame(data_dir_cal)
+colnames(data_dir_cal)= c("High", "Low", "true_class", "pred_class")
+data_dir_cal$true_class = as.factor(data_dir_cal$true_class)
+data_dir_cal$true_class <- factor(data_dir_cal$true_class, levels = c("Low", "High"))
+
+data_dir_cal[data_dir_cal == 0] <- 2.225074e-308
+
+data_dir_cal$High_bin = cut(data_dir_cal$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+data_dir_cal$Low_bin = cut(data_dir_cal$Low, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+```
+```{r}
+data_dir_uncal5 = data_dir_cal
+```
+####conf_ece/conf_mce
+```{r}
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+uncal5_plotdata = conf_ece_dir
+```
+#####Uncalibrated metrics
+```{r}
+conf_ece_uncal5 <- weighted.mean(absolute_diff, weight)
+conf_mce_uncal5 = max(absolute_diff)
+```
+```{r}
+set.seed(99)
+acc_uncal5 = confusionMatrix(as.factor(class_5[,2]), as.factor(cal_5_class))
+
+dirichlet_cal_prob = (cal_5[,2:3])/rowSums(cal_5[,2:3])
+brier.uncal_prob5 = multiclass.Brier(dirichlet_cal_prob,as.factor(class_5[,2]))
+```
+
+
+#Dirichlet predictions
+```{r}
+dirichlet_cal_5_class = predict(dirichlet_cal,newdata = test_prob5, type="raw")
+dirichlet_cal_5_prob = predict(dirichlet_cal,newdata = test_prob5, type="prob")
+```
+#####Organize data output for Dirichlet
+```{r}
+data_dir_cal = dirichlet_cal_5_prob
+data_dir_cal$true_class = class_5[,2]
+data_dir_cal$pred_class = dirichlet_cal_5_class
+```
+```{r}
+data_dir_cal = as.data.frame(data_dir_cal)
+colnames(data_dir_cal)= c("High", "Low", "true_class", "pred_class")
+data_dir_cal$true_class = as.factor(data_dir_cal$true_class)
+data_dir_cal$true_class <- factor(data_dir_cal$true_class, levels = c("Low", "High"))
+
+data_dir_cal$High_bin = cut(data_dir_cal$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+data_dir_cal$Low_bin = cut(data_dir_cal$Low, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+```
+```{r}
+data_dir_cal5 = data_dir_cal
+```
+####conf_ece/conf_mce
+```{r}
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+dir5_plotdata = conf_ece_dir
+```
+####Dirichlet metrics
+```{r}
+conf_ece_dir5 <- weighted.mean(absolute_diff, weight)
+conf_mce_dir5 = max(absolute_diff)
+```
+```{r}
+acc_dir5 = confusionMatrix(as.factor(class_5[,2]), as.factor(dirichlet_cal_5_class))
+
+#Brier
+dirichlet_cal_prob = (dirichlet_cal_5_prob)/rowSums(dirichlet_cal_5_prob)
+brier.dirichlet_cal_prob5 = multiclass.Brier(dirichlet_cal_prob,as.factor(class_5[,2]))
+```
+
+#CV6////////
+```{r}
+trainData_tme6 = subtype_tme[trainRowNumbers_tme$Resample06,]
+testData_tme6 = subtype_tme[-trainRowNumbers_tme$Resample06,]
+#Make our test and train data
+```
+```{r}
+x= data.matrix(trainData_tme6[, 3:9286])
+y= trainData_tme6$TMEscore_binary
+y = as.factor(y)
+x.test= data.matrix(testData_tme6[, 3:9286])
+y.test = testData_tme6$TMEscore_binary
+y.test = as.factor(y.test)
+```
+
+
+```{r}
+#Train data from model after feature selection
+set.seed(99)
+class_6_train = dplyr::select(trainData_tme6, "TMEscore_binary")
+cal_6_train = predict(rf.gbm.tme.model6,newdata = gbm.tme.train6, type="prob")
+cal_6_train_class = predict(rf.gbm.tme.model6,newdata = gbm.tme.train6, type="raw")
+class_6_train = tibble::rownames_to_column(class_6_train, "patient_id")
+cal_6_train = tibble::rownames_to_column(cal_6_train, "patient_id")
+cal_data6_train = merge(class_6_train,cal_6_train, by="patient_id")
+cal_data6_train = tibble::column_to_rownames(cal_data6_train, "patient_id")
+cal_data_train = cal_data6_train
+cal_data_train$TMEscore_binary = as.factor(cal_data_train$TMEscore_binary)
+cal_data_train$High[cal_data_train$High == 0] <- 2.225074e-308
+
+train_prob6 = cal_6_train[,2:3]
+train_prob6[train_prob6 == 0] <- 2.225074e-308
+train_prob6 = as.data.frame(train_prob6)
+```
+#Uncalibrated
+```{r}
+#Outer fold test data
+class_6 = dplyr::select(testData_tme6, "TMEscore_binary")
+cal_6 = predict(rf.gbm.tme.model6,newdata = gbm.tme.test6, type="prob")
+cal_6_class = predict(rf.gbm.tme.model6,newdata = gbm.tme.test6, type="raw")
+class_6 = tibble::rownames_to_column(class_6, "patient_id")
+cal_6 = tibble::rownames_to_column(cal_6, "patient_id")
+cal_data6 = merge(class_6,cal_6, by="patient_id")
+cal_data6 = tibble::column_to_rownames(cal_data6, "patient_id")
+cal_data = cal_data6
+cal_data$TMEscore_binary = as.factor(cal_data$TMEscore_binary)
+
+test_prob6 = cal_6[,2:3]
+test_prob6[test_prob6 == 0] <- 2.225074e-308
+test_prob6 = as.data.frame(test_prob6) #log transformed input to calibration models
+```
+#Dirichlet logloss
+```{r}
+set.seed(99)
+dirichlet_cal = caret::train(train_prob6,as.factor(class_6_train[,2]),'glmnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3, classProbs=TRUE, summaryFunction=mnLogLoss), metric = "logLoss",tuneGrid = expand.grid(alpha= 0 , lambda =c(1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1, 0, 1, 10, 100)))
+dirichlet_cal6 = dirichlet_cal
+```
+
+
+
+####ORGANIZE DATA 
+#Organize data output for Uncalibrated
+```{r}
+data_dir_cal = cal_6[,2:3]
+data_dir_cal$true_class = class_6[,2]
+data_dir_cal$pred_class = cal_6_class
+```
+```{r}
+data_dir_cal = as.data.frame(data_dir_cal)
+colnames(data_dir_cal)= c("High", "Low", "true_class", "pred_class")
+data_dir_cal$true_class = as.factor(data_dir_cal$true_class)
+data_dir_cal$true_class <- factor(data_dir_cal$true_class, levels = c("Low", "High"))
+
+data_dir_cal[data_dir_cal == 0] <- 2.225074e-308
+
+data_dir_cal$High_bin = cut(data_dir_cal$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+data_dir_cal$Low_bin = cut(data_dir_cal$Low, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+```
+```{r}
+data_dir_uncal6 = data_dir_cal
+```
+####conf_ece/conf_mce
+```{r}
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+uncal6_plotdata = conf_ece_dir
+```
+#####Uncalibrated metrics
+```{r}
+conf_ece_uncal6 <- weighted.mean(absolute_diff, weight)
+conf_mce_uncal6 = max(absolute_diff)
+```
+```{r}
+set.seed(99)
+acc_uncal6 = confusionMatrix(as.factor(class_6[,2]), as.factor(cal_6_class))
+
+dirichlet_cal_prob = (cal_6[,2:3])/rowSums(cal_6[,2:3])
+brier.uncal_prob6 = multiclass.Brier(dirichlet_cal_prob,as.factor(class_6[,2]))
+```
+
+
+#Dirichlet predictions
+```{r}
+dirichlet_cal_6_class = predict(dirichlet_cal,newdata = test_prob6, type="raw")
+dirichlet_cal_6_prob = predict(dirichlet_cal,newdata = test_prob6, type="prob")
+```
+#####Organize data output for Dirichlet
+```{r}
+data_dir_cal = dirichlet_cal_6_prob
+data_dir_cal$true_class = class_6[,2]
+data_dir_cal$pred_class = dirichlet_cal_6_class
+```
+```{r}
+data_dir_cal = as.data.frame(data_dir_cal)
+colnames(data_dir_cal)= c("High", "Low", "true_class", "pred_class")
+data_dir_cal$true_class = as.factor(data_dir_cal$true_class)
+data_dir_cal$true_class <- factor(data_dir_cal$true_class, levels = c("Low", "High"))
+
+data_dir_cal$High_bin = cut(data_dir_cal$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+data_dir_cal$Low_bin = cut(data_dir_cal$Low, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+```
+```{r}
+data_dir_cal6 = data_dir_cal
+```
+####conf_ece/conf_mce
+```{r}
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+dir6_plotdata = conf_ece_dir
+```
+####Dirichlet metrics
+```{r}
+conf_ece_dir6 <- weighted.mean(absolute_diff, weight)
+conf_mce_dir6 = max(absolute_diff)
+```
+```{r}
+acc_dir6 = confusionMatrix(as.factor(class_6[,2]), as.factor(dirichlet_cal_6_class))
+
+#Brier
+dirichlet_cal_prob = (dirichlet_cal_6_prob)/rowSums(dirichlet_cal_6_prob)
+brier.dirichlet_cal_prob6 = multiclass.Brier(dirichlet_cal_prob,as.factor(class_6[,2]))
+```
+
+#CV7////////
+```{r}
+trainData_tme7 = subtype_tme[trainRowNumbers_tme$Resample07,]
+testData_tme7 = subtype_tme[-trainRowNumbers_tme$Resample07,]
+#Make our test and train data
+```
+```{r}
+x= data.matrix(trainData_tme7[, 3:9286])
+y= trainData_tme7$TMEscore_binary
+y = as.factor(y)
+x.test= data.matrix(testData_tme7[, 3:9286])
+y.test = testData_tme7$TMEscore_binary
+y.test = as.factor(y.test)
+```
+
+
+```{r}
+#Train data from model after feature selection
+set.seed(99)
+class_7_train = dplyr::select(trainData_tme7, "TMEscore_binary")
+cal_7_train = predict(rf.gbm.tme.model7,newdata = gbm.tme.train7, type="prob")
+cal_7_train_class = predict(rf.gbm.tme.model7,newdata = gbm.tme.train7, type="raw")
+class_7_train = tibble::rownames_to_column(class_7_train, "patient_id")
+cal_7_train = tibble::rownames_to_column(cal_7_train, "patient_id")
+cal_data7_train = merge(class_7_train,cal_7_train, by="patient_id")
+cal_data7_train = tibble::column_to_rownames(cal_data7_train, "patient_id")
+cal_data_train = cal_data7_train
+cal_data_train$TMEscore_binary = as.factor(cal_data_train$TMEscore_binary)
+cal_data_train$High[cal_data_train$High == 0] <- 2.225074e-308
+
+train_prob7 = cal_7_train[,2:3]
+train_prob7[train_prob7 == 0] <- 2.225074e-308
+train_prob7 = as.data.frame(train_prob7)
+```
+#Uncalibrated
+```{r}
+#Outer fold test data
+class_7 = dplyr::select(testData_tme7, "TMEscore_binary")
+cal_7 = predict(rf.gbm.tme.model7,newdata = gbm.tme.test7, type="prob")
+cal_7_class = predict(rf.gbm.tme.model7,newdata = gbm.tme.test7, type="raw")
+class_7 = tibble::rownames_to_column(class_7, "patient_id")
+cal_7 = tibble::rownames_to_column(cal_7, "patient_id")
+cal_data7 = merge(class_7,cal_7, by="patient_id")
+cal_data7 = tibble::column_to_rownames(cal_data7, "patient_id")
+cal_data = cal_data7
+cal_data$TMEscore_binary = as.factor(cal_data$TMEscore_binary)
+
+test_prob7 = cal_7[,2:3]
+test_prob7[test_prob7 == 0] <- 2.225074e-308
+test_prob7 = as.data.frame(test_prob7) #log transformed input to calibration models
+```
+#Dirichlet logloss
+```{r}
+set.seed(99)
+dirichlet_cal = caret::train(train_prob7,as.factor(class_7_train[,2]),'glmnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3, classProbs=TRUE, summaryFunction=mnLogLoss), metric = "logLoss",tuneGrid = expand.grid(alpha= 0 , lambda =c(1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1, 0, 1, 10, 100)))
+dirichlet_cal7 = dirichlet_cal
+```
+
+
+
+####ORGANIZE DATA 
+#Organize data output for Uncalibrated
+```{r}
+data_dir_cal = cal_7[,2:3]
+data_dir_cal$true_class = class_7[,2]
+data_dir_cal$pred_class = cal_7_class
+```
+```{r}
+data_dir_cal = as.data.frame(data_dir_cal)
+colnames(data_dir_cal)= c("High", "Low", "true_class", "pred_class")
+data_dir_cal$true_class = as.factor(data_dir_cal$true_class)
+data_dir_cal$true_class <- factor(data_dir_cal$true_class, levels = c("Low", "High"))
+
+data_dir_cal[data_dir_cal == 0] <- 2.225074e-308
+
+data_dir_cal$High_bin = cut(data_dir_cal$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+data_dir_cal$Low_bin = cut(data_dir_cal$Low, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+```
+```{r}
+data_dir_uncal7 = data_dir_cal
+```
+####conf_ece/conf_mce
+```{r}
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+uncal7_plotdata = conf_ece_dir
+```
+#####Uncalibrated metrics
+```{r}
+conf_ece_uncal7 <- weighted.mean(absolute_diff, weight)
+conf_mce_uncal7 = max(absolute_diff)
+```
+```{r}
+set.seed(99)
+acc_uncal7 = confusionMatrix(as.factor(class_7[,2]), as.factor(cal_7_class))
+
+dirichlet_cal_prob = (cal_7[,2:3])/rowSums(cal_7[,2:3])
+brier.uncal_prob7 = multiclass.Brier(dirichlet_cal_prob,as.factor(class_7[,2]))
+```
+
+
+#Dirichlet predictions
+```{r}
+dirichlet_cal_7_class = predict(dirichlet_cal,newdata = test_prob7, type="raw")
+dirichlet_cal_7_prob = predict(dirichlet_cal,newdata = test_prob7, type="prob")
+```
+#####Organize data output for Dirichlet
+```{r}
+data_dir_cal = dirichlet_cal_7_prob
+data_dir_cal$true_class = class_7[,2]
+data_dir_cal$pred_class = dirichlet_cal_7_class
+```
+```{r}
+data_dir_cal = as.data.frame(data_dir_cal)
+colnames(data_dir_cal)= c("High", "Low", "true_class", "pred_class")
+data_dir_cal$true_class = as.factor(data_dir_cal$true_class)
+data_dir_cal$true_class <- factor(data_dir_cal$true_class, levels = c("Low", "High"))
+
+data_dir_cal$High_bin = cut(data_dir_cal$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+data_dir_cal$Low_bin = cut(data_dir_cal$Low, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+```
+```{r}
+data_dir_cal7 = data_dir_cal
+```
+####conf_ece/conf_mce
+```{r}
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+dir7_plotdata = conf_ece_dir
+```
+####Dirichlet metrics
+```{r}
+conf_ece_dir7 <- weighted.mean(absolute_diff, weight)
+conf_mce_dir7 = max(absolute_diff)
+```
+```{r}
+acc_dir7 = confusionMatrix(as.factor(class_7[,2]), as.factor(dirichlet_cal_7_class))
+
+#Brier
+dirichlet_cal_prob = (dirichlet_cal_7_prob)/rowSums(dirichlet_cal_7_prob)
+brier.dirichlet_cal_prob7 = multiclass.Brier(dirichlet_cal_prob,as.factor(class_7[,2]))
+```
+
+#CV8////////
+```{r}
+trainData_tme8 = subtype_tme[trainRowNumbers_tme$Resample08,]
+testData_tme8 = subtype_tme[-trainRowNumbers_tme$Resample08,]
+#Make our test and train data
+```
+```{r}
+x= data.matrix(trainData_tme8[, 3:9286])
+y= trainData_tme8$TMEscore_binary
+y = as.factor(y)
+x.test= data.matrix(testData_tme8[, 3:9286])
+y.test = testData_tme8$TMEscore_binary
+y.test = as.factor(y.test)
+```
+
+
+```{r}
+#Train data from model after feature selection
+set.seed(99)
+class_8_train = dplyr::select(trainData_tme8, "TMEscore_binary")
+cal_8_train = predict(rf.gbm.tme.model8,newdata = gbm.tme.train8, type="prob")
+cal_8_train_class = predict(rf.gbm.tme.model8,newdata = gbm.tme.train8, type="raw")
+class_8_train = tibble::rownames_to_column(class_8_train, "patient_id")
+cal_8_train = tibble::rownames_to_column(cal_8_train, "patient_id")
+cal_data8_train = merge(class_8_train,cal_8_train, by="patient_id")
+cal_data8_train = tibble::column_to_rownames(cal_data8_train, "patient_id")
+cal_data_train = cal_data8_train
+cal_data_train$TMEscore_binary = as.factor(cal_data_train$TMEscore_binary)
+cal_data_train$High[cal_data_train$High == 0] <- 2.225074e-308
+
+train_prob8 = cal_8_train[,2:3]
+train_prob8[train_prob8 == 0] <- 2.225074e-308
+train_prob8 = as.data.frame(train_prob8)
+```
+#Uncalibrated
+```{r}
+#Outer fold test data
+class_8 = dplyr::select(testData_tme8, "TMEscore_binary")
+cal_8 = predict(rf.gbm.tme.model8,newdata = gbm.tme.test8, type="prob")
+cal_8_class = predict(rf.gbm.tme.model8,newdata = gbm.tme.test8, type="raw")
+class_8 = tibble::rownames_to_column(class_8, "patient_id")
+cal_8 = tibble::rownames_to_column(cal_8, "patient_id")
+cal_data8 = merge(class_8,cal_8, by="patient_id")
+cal_data8 = tibble::column_to_rownames(cal_data8, "patient_id")
+cal_data = cal_data8
+cal_data$TMEscore_binary = as.factor(cal_data$TMEscore_binary)
+
+test_prob8 = cal_8[,2:3]
+test_prob8[test_prob8 == 0] <- 2.225074e-308
+test_prob8 = as.data.frame(test_prob8) #log transformed input to calibration models
+```
+#Dirichlet logloss
+```{r}
+set.seed(99)
+dirichlet_cal = caret::train(train_prob8,as.factor(class_8_train[,2]),'glmnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3, classProbs=TRUE, summaryFunction=mnLogLoss), metric = "logLoss",tuneGrid = expand.grid(alpha= 0 , lambda =c(1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1, 0, 1, 10, 100)))
+dirichlet_cal8 = dirichlet_cal
+```
+
+
+
+####ORGANIZE DATA CV1
+#Organize data output for Uncalibrated
+```{r}
+data_dir_cal = cal_8[,2:3]
+data_dir_cal$true_class = class_8[,2]
+data_dir_cal$pred_class = cal_8_class
+```
+```{r}
+data_dir_cal = as.data.frame(data_dir_cal)
+colnames(data_dir_cal)= c("High", "Low", "true_class", "pred_class")
+data_dir_cal$true_class = as.factor(data_dir_cal$true_class)
+data_dir_cal$true_class <- factor(data_dir_cal$true_class, levels = c("Low", "High"))
+
+data_dir_cal[data_dir_cal == 0] <- 2.225074e-308
+
+data_dir_cal$High_bin = cut(data_dir_cal$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+data_dir_cal$Low_bin = cut(data_dir_cal$Low, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+```
+```{r}
+data_dir_uncal8 = data_dir_cal
+```
+####conf_ece/conf_mce
+```{r}
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+uncal8_plotdata = conf_ece_dir
+```
+#####Uncalibrated metrics
+```{r}
+conf_ece_uncal8 <- weighted.mean(absolute_diff, weight)
+conf_mce_uncal8 = max(absolute_diff)
+```
+```{r}
+set.seed(99)
+acc_uncal8 = confusionMatrix(as.factor(class_8[,2]), as.factor(cal_8_class))
+
+dirichlet_cal_prob = (cal_8[,2:3])/rowSums(cal_8[,2:3])
+brier.uncal_prob8 = multiclass.Brier(dirichlet_cal_prob,as.factor(class_8[,2]))
+```
+
+
+#Dirichlet predictions
+```{r}
+dirichlet_cal_8_class = predict(dirichlet_cal,newdata = test_prob8, type="raw")
+dirichlet_cal_8_prob = predict(dirichlet_cal,newdata = test_prob8, type="prob")
+```
+#####Organize data output for Dirichlet
+```{r}
+data_dir_cal = dirichlet_cal_8_prob
+data_dir_cal$true_class = class_8[,2]
+data_dir_cal$pred_class = dirichlet_cal_8_class
+```
+```{r}
+data_dir_cal = as.data.frame(data_dir_cal)
+colnames(data_dir_cal)= c("High", "Low", "true_class", "pred_class")
+data_dir_cal$true_class = as.factor(data_dir_cal$true_class)
+data_dir_cal$true_class <- factor(data_dir_cal$true_class, levels = c("Low", "High"))
+
+data_dir_cal$High_bin = cut(data_dir_cal$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+data_dir_cal$Low_bin = cut(data_dir_cal$Low, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+```
+```{r}
+data_dir_cal8 = data_dir_cal
+```
+####conf_ece/conf_mce
+```{r}
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+dir8_plotdata = conf_ece_dir
+```
+####Dirichlet metrics
+```{r}
+conf_ece_dir8 <- weighted.mean(absolute_diff, weight)
+conf_mce_dir8 = max(absolute_diff)
+```
+```{r}
+acc_dir8 = confusionMatrix(as.factor(class_8[,2]), as.factor(dirichlet_cal_8_class))
+
+#Brier
+dirichlet_cal_prob = (dirichlet_cal_8_prob)/rowSums(dirichlet_cal_8_prob)
+brier.dirichlet_cal_prob8 = multiclass.Brier(dirichlet_cal_prob,as.factor(class_8[,2]))
+```
+
+#CV9////////
+```{r}
+trainData_tme9 = subtype_tme[trainRowNumbers_tme$Resample09,]
+testData_tme9 = subtype_tme[-trainRowNumbers_tme$Resample09,]
+#Make our test and train data
+```
+```{r}
+x= data.matrix(trainData_tme9[, 3:9286])
+y= trainData_tme9$TMEscore_binary
+y = as.factor(y)
+x.test= data.matrix(testData_tme9[, 3:9286])
+y.test = testData_tme9$TMEscore_binary
+y.test = as.factor(y.test)
+```
+
+
+```{r}
+#Train data from model after feature selection
+set.seed(99)
+class_9_train = dplyr::select(trainData_tme9, "TMEscore_binary")
+cal_9_train = predict(rf.gbm.tme.model9,newdata = gbm.tme.train9, type="prob")
+cal_9_train_class = predict(rf.gbm.tme.model9,newdata = gbm.tme.train9, type="raw")
+class_9_train = tibble::rownames_to_column(class_9_train, "patient_id")
+cal_9_train = tibble::rownames_to_column(cal_9_train, "patient_id")
+cal_data9_train = merge(class_9_train,cal_9_train, by="patient_id")
+cal_data9_train = tibble::column_to_rownames(cal_data9_train, "patient_id")
+cal_data_train = cal_data9_train
+cal_data_train$TMEscore_binary = as.factor(cal_data_train$TMEscore_binary)
+cal_data_train$High[cal_data_train$High == 0] <- 2.225074e-308
+
+train_prob9 = cal_9_train[,2:3]
+train_prob9[train_prob9 == 0] <- 2.225074e-308
+train_prob9 = as.data.frame(train_prob9)
+```
+#Uncalibrated
+```{r}
+#Outer fold test data
+class_9 = dplyr::select(testData_tme9, "TMEscore_binary")
+cal_9 = predict(rf.gbm.tme.model9,newdata = gbm.tme.test9, type="prob")
+cal_9_class = predict(rf.gbm.tme.model9,newdata = gbm.tme.test9, type="raw")
+class_9 = tibble::rownames_to_column(class_9, "patient_id")
+cal_9 = tibble::rownames_to_column(cal_9, "patient_id")
+cal_data9 = merge(class_9,cal_9, by="patient_id")
+cal_data9 = tibble::column_to_rownames(cal_data9, "patient_id")
+cal_data = cal_data9
+cal_data$TMEscore_binary = as.factor(cal_data$TMEscore_binary)
+
+test_prob9 = cal_9[,2:3]
+test_prob9[test_prob9 == 0] <- 2.225074e-308
+test_prob9 = as.data.frame(test_prob9) #log transformed input to calibration models
+```
+#Dirichlet logloss
+```{r}
+set.seed(99)
+dirichlet_cal = caret::train(train_prob9,as.factor(class_9_train[,2]),'glmnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3, classProbs=TRUE, summaryFunction=mnLogLoss), metric = "logLoss",tuneGrid = expand.grid(alpha= 0 , lambda =c(1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1, 0, 1, 10, 100)))
+dirichlet_cal9 = dirichlet_cal
+```
+
+
+
+####ORGANIZE DATA 
+#Organize data output for Uncalibrated
+```{r}
+data_dir_cal = cal_9[,2:3]
+data_dir_cal$true_class = class_9[,2]
+data_dir_cal$pred_class = cal_9_class
+```
+```{r}
+data_dir_cal = as.data.frame(data_dir_cal)
+colnames(data_dir_cal)= c("High", "Low", "true_class", "pred_class")
+data_dir_cal$true_class = as.factor(data_dir_cal$true_class)
+data_dir_cal$true_class <- factor(data_dir_cal$true_class, levels = c("Low", "High"))
+
+data_dir_cal[data_dir_cal == 0] <- 2.225074e-308
+
+data_dir_cal$High_bin = cut(data_dir_cal$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+data_dir_cal$Low_bin = cut(data_dir_cal$Low, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+```
+```{r}
+data_dir_uncal9 = data_dir_cal
+```
+####conf_ece/conf_mce
+```{r}
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+uncal9_plotdata = conf_ece_dir
+```
+#####Uncalibrated metrics
+```{r}
+conf_ece_uncal9 <- weighted.mean(absolute_diff, weight)
+conf_mce_uncal9 = max(absolute_diff)
+```
+```{r}
+set.seed(99)
+acc_uncal9 = confusionMatrix(as.factor(class_9[,2]), as.factor(cal_9_class))
+
+dirichlet_cal_prob = (cal_9[,2:3])/rowSums(cal_9[,2:3])
+brier.uncal_prob9 = multiclass.Brier(dirichlet_cal_prob,as.factor(class_9[,2]))
+```
+
+
+#Dirichlet predictions
+```{r}
+dirichlet_cal_9_class = predict(dirichlet_cal,newdata = test_prob9, type="raw")
+dirichlet_cal_9_prob = predict(dirichlet_cal,newdata = test_prob9, type="prob")
+```
+#####Organize data output for Dirichlet
+```{r}
+data_dir_cal = dirichlet_cal_9_prob
+data_dir_cal$true_class = class_9[,2]
+data_dir_cal$pred_class = dirichlet_cal_9_class
+```
+```{r}
+data_dir_cal = as.data.frame(data_dir_cal)
+colnames(data_dir_cal)= c("High", "Low", "true_class", "pred_class")
+data_dir_cal$true_class = as.factor(data_dir_cal$true_class)
+data_dir_cal$true_class <- factor(data_dir_cal$true_class, levels = c("Low", "High"))
+
+data_dir_cal$High_bin = cut(data_dir_cal$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+data_dir_cal$Low_bin = cut(data_dir_cal$Low, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+```
+```{r}
+data_dir_cal9 = data_dir_cal
+```
+####conf_ece/conf_mce
+```{r}
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+dir9_plotdata = conf_ece_dir
+```
+####Dirichlet metrics
+```{r}
+conf_ece_dir9 <- weighted.mean(absolute_diff, weight)
+conf_mce_dir9 = max(absolute_diff)
+```
+```{r}
+acc_dir9 = confusionMatrix(as.factor(class_9[,2]), as.factor(dirichlet_cal_9_class))
+
+#Brier
+dirichlet_cal_prob = (dirichlet_cal_9_prob)/rowSums(dirichlet_cal_9_prob)
+brier.dirichlet_cal_prob9 = multiclass.Brier(dirichlet_cal_prob,as.factor(class_9[,2]))
+```
+
+#CV10////////
+```{r}
+trainData_tme10 = subtype_tme[trainRowNumbers_tme$Resample10,]
+testData_tme10 = subtype_tme[-trainRowNumbers_tme$Resample10,]
+#Make our test and train data
+```
+```{r}
+x= data.matrix(trainData_tme10[, 3:9286])
+y= trainData_tme10$TMEscore_binary
+y = as.factor(y)
+x.test= data.matrix(testData_tme10[, 3:9286])
+y.test = testData_tme10$TMEscore_binary
+y.test = as.factor(y.test)
+```
+
+
+```{r}
+#Train data from model after feature selection
+set.seed(99)
+class_10_train = dplyr::select(trainData_tme10, "TMEscore_binary")
+cal_10_train = predict(rf.gbm.tme.model10,newdata = gbm.tme.train10, type="prob")
+cal_10_train_class = predict(rf.gbm.tme.model10,newdata = gbm.tme.train10, type="raw")
+class_10_train = tibble::rownames_to_column(class_10_train, "patient_id")
+cal_10_train = tibble::rownames_to_column(cal_10_train, "patient_id")
+cal_data10_train = merge(class_10_train,cal_10_train, by="patient_id")
+cal_data10_train = tibble::column_to_rownames(cal_data10_train, "patient_id")
+cal_data_train = cal_data10_train
+cal_data_train$TMEscore_binary = as.factor(cal_data_train$TMEscore_binary)
+cal_data_train$High[cal_data_train$High == 0] <- 2.225074e-308
+
+train_prob10 = cal_10_train_class[,2:3]
+train_prob10[train_prob10 == 0] <- 2.225074e-308
+train_prob10 = as.data.frame(train_prob10)
+```
+#Uncalibrated
+```{r}
+#Outer fold test data
+class_10 = dplyr::select(testData_tme10, "TMEscore_binary")
+cal_10 = predict(rf.gbm.tme.model10,newdata = gbm.tme.test10, type="prob")
+cal_10_class = predict(rf.gbm.tme.model10,newdata = gbm.tme.test10, type="raw")
+class_10 = tibble::rownames_to_column(class_10, "patient_id")
+cal_10 = tibble::rownames_to_column(cal_10, "patient_id")
+cal_data10 = merge(class_10,cal_10, by="patient_id")
+cal_data10 = tibble::column_to_rownames(cal_data10, "patient_id")
+cal_data = cal_data10
+cal_data$TMEscore_binary = as.factor(cal_data$TMEscore_binary)
+
+test_prob10 = cal_10[,2:3]
+test_prob10[test_prob10 == 0] <- 2.225074e-308
+test_prob10 = as.data.frame(test_prob10) #log transformed input to calibration models
+```
+#Dirichlet logloss
+```{r}
+set.seed(99)
+dirichlet_cal = caret::train(train_prob10,as.factor(class_10_train[,2]),'glmnet',trControl=trainControl(method='repeatedcv',number=5, repeats = 3, classProbs=TRUE, summaryFunction=mnLogLoss), metric = "logLoss",tuneGrid = expand.grid(alpha= 0 , lambda =c(1e-9,1e-8,1e-7,1e-6,1e-5,1e-4,1e-3,1e-2,1e-1, 0, 1, 10, 100)))
+dirichlet_cal10 = dirichlet_cal
+```
+
+
+
+####ORGANIZE DATA 
+#Organize data output for Uncalibrated
+```{r}
+data_dir_cal = cal_10[,2:3]
+data_dir_cal$true_class = class_10[,2]
+data_dir_cal$pred_class = cal_10_class
+```
+```{r}
+data_dir_cal = as.data.frame(data_dir_cal)
+colnames(data_dir_cal)= c("High", "Low", "true_class", "pred_class")
+data_dir_cal$true_class = as.factor(data_dir_cal$true_class)
+data_dir_cal$true_class <- factor(data_dir_cal$true_class, levels = c("Low", "High"))
+
+data_dir_cal[data_dir_cal == 0] <- 2.225074e-308
+
+data_dir_cal$High_bin = cut(data_dir_cal$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+data_dir_cal$Low_bin = cut(data_dir_cal$Low, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+```
+```{r}
+data_dir_uncal10 = data_dir_cal
+```
+####conf_ece/conf_mce
+```{r}
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+uncal10_plotdata = conf_ece_dir
+```
+#####Uncalibrated metrics
+```{r}
+conf_ece_uncal10 <- weighted.mean(absolute_diff, weight)
+conf_mce_uncal10 = max(absolute_diff)
+```
+```{r}
+set.seed(99)
+acc_uncal10 = confusionMatrix(as.factor(class_10[,2]), as.factor(cal_10_class))
+
+dirichlet_cal_prob = (cal_10[,2:3])/rowSums(cal_10[,2:3])
+brier.uncal_prob10 = multiclass.Brier(dirichlet_cal_prob,as.factor(class_10[,2]))
+```
+
+
+#Dirichlet predictions
+```{r}
+dirichlet_cal_10_class = predict(dirichlet_cal,newdata = test_prob10, type="raw")
+dirichlet_cal_10_prob = predict(dirichlet_cal,newdata = test_prob10, type="prob")
+```
+#####Organize data output for Dirichlet
+```{r}
+data_dir_cal = dirichlet_cal_10_prob
+data_dir_cal$true_class = class_10[,2]
+data_dir_cal$pred_class = dirichlet_cal_10_class
+```
+```{r}
+data_dir_cal = as.data.frame(data_dir_cal)
+colnames(data_dir_cal)= c("High", "Low", "true_class", "pred_class")
+data_dir_cal$true_class = as.factor(data_dir_cal$true_class)
+data_dir_cal$true_class <- factor(data_dir_cal$true_class, levels = c("Low", "High"))
+
+data_dir_cal$High_bin = cut(data_dir_cal$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+data_dir_cal$Low_bin = cut(data_dir_cal$Low, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+```
+```{r}
+data_dir_cal10 = data_dir_cal
+```
+####conf_ece/conf_mce
+```{r}
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+dir10_plotdata = conf_ece_dir
+```
+####Dirichlet metrics
+```{r}
+conf_ece_dir10 <- weighted.mean(absolute_diff, weight)
+conf_mce_dir10 = max(absolute_diff)
+```
+```{r}
+acc_dir10 = confusionMatrix(as.factor(class_10[,2]), as.factor(dirichlet_cal_10_class))
+
+#Brier
+dirichlet_cal_prob = (dirichlet_cal_10_prob)/rowSums(dirichlet_cal_10_prob)
+brier.dirichlet_cal_prob10 = multiclass.Brier(dirichlet_cal_prob,as.factor(class_10[,2]))
+```
+
+
+
+
+
+
+
+
+
+
+#Compile Dirichlet
+```{r}
+conf_ece_dir = mget(ls(pattern = 'conf_ece_dir\\d+'))
+conf_ece_dir = data.frame(matrix(unlist(conf_ece_dir), nrow=length(conf_ece_dir), byrow=TRUE))  
+colnames(conf_ece_dir) <- c("conf_ece_dir")
+
+conf_mce_dir = mget(ls(pattern = 'conf_mce_dir\\d+'))
+conf_mce_dir = data.frame(matrix(unlist(conf_mce_dir), nrow=length(conf_mce_dir), byrow=TRUE))  
+colnames(conf_mce_dir) <- c("conf_mce_dir")
+
+brier_dirichlet = mget(ls(pattern = 'brier.dirichlet_cal_prob\\d+'))
+brier_dirichlet = data.frame(matrix(unlist(brier_dirichlet), nrow=length(brier_dirichlet), byrow=TRUE))  
+colnames(brier_dirichlet) <- c("brier_dirichlet")
+
+total_list <- lapply(mget(ls(pattern = 'acc_dir\\d+')), function(x) {
+         data <- x$overall
+         data[setdiff(names(data), c("AccuracyLower","AccuracyUpper", "AccuracyNull", "AccuracyPValue", "McnemarPValue" ))]
+})
+dirichlet_accuracy <- data.frame(matrix(unlist(total_list), nrow=length(total_list), byrow=TRUE))
+colnames(dirichlet_accuracy) <- c("Accuracy", "Kappa")
+
+dirichlet_metrics = data.frame(dirichlet_accuracy, conf_ece_dir, conf_mce_dir, brier_dirichlet)
+
+data_dir_cal_final = mget(ls(pattern = 'data_dir_cal\\d+'))
+data_dir_cal_final = do.call(rbind, data_dir_cal_final)
+```
+```{r}
+mean = lapply(dirichlet_metrics, mean)
+sd = lapply(dirichlet_metrics, sd)
+
+dirichlet_metrics_mean = melt(mean)
+dirichlet_metrics_sd = melt(sd)
+```
+#Compile Uncal
+```{r}
+conf_ece_uncal = mget(ls(pattern = 'conf_ece_uncal\\d+'))
+conf_ece_uncal = data.frame(matrix(unlist(conf_ece_uncal), nrow=length(conf_ece_uncal), byrow=TRUE))  
+colnames(conf_ece_uncal) <- c("conf_ece_uncal")
+
+conf_mce_uncal = mget(ls(pattern = 'conf_mce_uncal\\d+'))
+conf_mce_uncal = data.frame(matrix(unlist(conf_mce_uncal), nrow=length(conf_mce_uncal), byrow=TRUE))  
+colnames(conf_mce_uncal) <- c("conf_mce_uncal")
+
+brier_uncal = mget(ls(pattern = 'brier.uncal_prob\\d+'))
+brier_uncal = data.frame(matrix(unlist(brier_uncal), nrow=length(brier_uncal), byrow=TRUE))  
+colnames(brier_uncal) <- c("brier_uncal")
+
+total_list <- lapply(mget(ls(pattern = 'acc_uncal\\d+')), function(x) {
+         data <- x$overall
+         data[setdiff(names(data), c("AccuracyLower","AccuracyUpper", "AccuracyNull", "AccuracyPValue", "McnemarPValue" ))]
+})
+uncal_accuracy <- data.frame(matrix(unlist(total_list), nrow=length(total_list), byrow=TRUE))
+colnames(uncal_accuracy) <- c("Accuracy", "Kappa")
+
+uncal_metrics = data.frame(uncal_accuracy, conf_ece_uncal, conf_mce_uncal, brier_uncal)
+
+data_dir_uncal = mget(ls(pattern = 'data_dir_uncal\\d+'))
+data_dir_uncal = do.call(rbind, data_dir_uncal)
+```
+```{r}
+mean = lapply(uncal_metrics, mean)
+sd = lapply(uncal_metrics, sd)
+
+uncal_metrics_mean = melt(mean)
+uncal_metrics_sd = melt(sd)
+```
+
+#SKCE per fold uncal
+```{r}
+set.seed(1234)
+predictions= data_dir_uncal1$High
+outcomes = data_dir_uncal1$true_class=="High"
+skce_uncal1 = skce$.(predictions, outcomes)
+
+set.seed(1234)
+predictions= data_dir_uncal2$High
+outcomes = data_dir_uncal2$true_class=="High"
+skce_uncal2 = skce$.(predictions, outcomes)
+
+set.seed(1234)
+predictions= data_dir_uncal3$High
+outcomes = data_dir_uncal3$true_class=="High"
+skce_uncal3 = skce$.(predictions, outcomes)
+
+set.seed(1234)
+predictions= data_dir_uncal4$High
+outcomes = data_dir_uncal4$true_class=="High"
+skce_uncal4 = skce$.(predictions, outcomes)
+
+set.seed(1234)
+predictions= data_dir_uncal5$High
+outcomes = data_dir_uncal5$true_class=="High"
+skce_uncal5 = skce$.(predictions, outcomes)
+
+set.seed(1234)
+predictions= data_dir_uncal6$High
+outcomes = data_dir_uncal6$true_class=="High"
+skce_uncal6 = skce$.(predictions, outcomes)
+
+set.seed(1234)
+predictions= data_dir_uncal7$High
+outcomes = data_dir_uncal7$true_class=="High"
+skce_uncal7 = skce$.(predictions, outcomes)
+
+set.seed(1234)
+predictions= data_dir_uncal8$High
+outcomes = data_dir_uncal8$true_class=="High"
+skce_uncal8 = skce$.(predictions, outcomes)
+
+set.seed(1234)
+predictions= data_dir_uncal9$High
+outcomes = data_dir_uncal9$true_class=="High"
+skce_uncal9 = skce$.(predictions, outcomes)
+
+set.seed(1234)
+predictions= data_dir_uncal10$High
+outcomes = data_dir_uncal10$true_class=="High"
+skce_uncal10 = skce$.(predictions, outcomes)
+
+skce_uncal = mget(ls(pattern = 'skce_uncal\\d+'))
+skce_uncal = data.frame(matrix(unlist(skce_uncal), nrow=length(skce_uncal), byrow=TRUE))  
+colnames(skce_uncal) <- c("skce_uncal")
+
+skce_uncal_summary <- summarySE(skce_uncal, measurevar="skce_uncal")
+```
+#SKCE per fold dir logloss
+```{r}
+set.seed(1234)
+predictions= data_dir_cal1$High
+outcomes = data_dir_cal1$true_class=="High"
+skce_dir1 = skce$.(predictions, outcomes)
+
+set.seed(1234)
+predictions= data_dir_cal2$High
+outcomes = data_dir_cal2$true_class=="High"
+skce_dir2 = skce$.(predictions, outcomes)
+
+set.seed(1234)
+predictions= data_dir_cal3$High
+outcomes = data_dir_cal3$true_class=="High"
+skce_dir3 = skce$.(predictions, outcomes)
+
+set.seed(1234)
+predictions= data_dir_cal4$High
+outcomes = data_dir_cal4$true_class=="High"
+skce_dir4 = skce$.(predictions, outcomes)
+
+set.seed(1234)
+predictions= data_dir_cal5$High
+outcomes = data_dir_cal5$true_class=="High"
+skce_dir5 = skce$.(predictions, outcomes)
+
+set.seed(1234)
+predictions= data_dir_cal6$High
+outcomes = data_dir_cal6$true_class=="High"
+skce_dir6 = skce$.(predictions, outcomes)
+
+set.seed(1234)
+predictions= data_dir_cal7$High
+outcomes = data_dir_cal7$true_class=="High"
+skce_dir7 = skce$.(predictions, outcomes)
+
+set.seed(1234)
+predictions= data_dir_cal8$High
+outcomes = data_dir_cal8$true_class=="High"
+skce_dir8 = skce$.(predictions, outcomes)
+
+set.seed(1234)
+predictions= data_dir_cal9$High
+outcomes = data_dir_cal9$true_class=="High"
+skce_dir9 = skce$.(predictions, outcomes)
+
+set.seed(1234)
+predictions= data_dir_cal10$High
+outcomes = data_dir_cal10$true_class=="High"
+skce_dir10 = skce$.(predictions, outcomes)
+
+skce_dir = mget(ls(pattern = 'skce_dir\\d+'))
+skce_dir = data.frame(matrix(unlist(skce_dir), nrow=length(skce_dir), byrow=TRUE))  
+colnames(skce_dir) <- c("skce_dir")
+
+skce_dir_summary <- summarySE(skce_dir, measurevar="skce_dir")
+
+```
+
+#Plots conf Uncal
+```{r}
+data_dir_cal = data_dir_uncal
+
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+uncal_plotdata_final = conf_ece_dir
+```
+```{r}
+bin = as.factor(levels(uncal_plotdata_final$bin))
+midpoint = c(seq(from = 0.05, to = 0.95, by = 0.1))
+plot_data = data.frame(bin,midpoint)
+uncal_plotdata_final = left_join(plot_data, uncal_plotdata_final)
+uncal_plotdata_final$weight[is.na(uncal_plotdata_final$weight)] <- 0
+
+conf_plotdata_final = ggplot(uncal_plotdata_final, aes(x=midpoint, y=accuracy)) +
+      geom_bar(aes(x=midpoint, y=accuracy, fill= c("salmon", rep("blue", 9))), stat="identity", colour="black", size = 0.6 , width = 0.1, position=position_dodge(0.5)) +
+      ylim(0,1) +
+      ylab("Accuracy") + 
+      xlab("Confidence") +
+      ggtitle("Reliability Plot: Base Model TME") +
+      scale_fill_manual(name = NULL,guide = "legend",values=c("blue", "salmon"), labels = c("Observed Accuracy", "Gap Predicted Mean")) +
+      scale_x_continuous(limits= c(0,1),labels=c(seq(from = 0, to = 1, by = 0.2)), breaks=c(seq(from = 0, to = 1, by = 0.2))) + 
+      geom_abline(intercept = 0, slope = 1, size=1.3,linetype = "dashed", colour = "darkgray") +
+      geom_linerange(aes(ymin = accuracy, ymax = midpoint), size = sqrt(uncal_plotdata_final$weight*30), colour ="salmon") +
+      theme_classic() + 
+      theme(axis.text.x = element_text(colour="black", size = 13)) +
+      theme(axis.text.y = element_text(colour="black",size = 13)) + 
+      theme(plot.title = element_text(colour="black", size=13,hjust = 0, vjust=0)) +
+      theme(axis.title.x = element_text(colour="black", size =13, vjust = 0.05)) +
+      theme(axis.title.y = element_text(colour="black", size=13)) +
+      theme(legend.title = element_text(color = "black", size = 13),
+            legend.text = element_text(color = "black", size = 13),
+            legend.position = c(0.3,0.85),
+            legend.background = element_blank())     
+conf_plotdata_final
+ 
+ggsave("conf_plot_tme_uncal.svg",conf_plotdata_final, height = 4, width=6)
+
+```
+
+
+#Plots dirichlet
+```{r}
+data_dir_cal = data_dir_cal_final
+
+conf_ece =  cbind(data_dir_cal[c("High", "true_class","pred_class")])
+conf_ece$bin = cut(conf_ece$High, breaks=c(seq(from = 0, to = 1, by = 0.1)))
+
+conf = conf_ece %>%
+  group_by(bin) %>%
+  dplyr::summarize(confidence = if(all(is.na(High))) NA_real_ else mean(High, na.rm = TRUE),n = n()) 
+
+acc = as.data.frame(table(conf_ece$bin,conf_ece$true_class))
+colnames(acc)= c("bin", "true_class", "freq")
+acc = dcast(acc, bin~ true_class, value.var="freq")
+acc$sum = acc[,2] + acc[,3]
+acc$accuracy = acc[,3] / acc[,4]
+
+conf_ece_dir = merge(conf,acc, by="bin")
+```
+```{r}
+absolute_diff = abs(conf_ece_dir$confidence-conf_ece_dir$accuracy)
+weight <- c(conf_ece_dir$n)/sum(conf_ece_dir$n)
+conf_ece_dir$weight = weight
+uncal_plotdata_final = conf_ece_dir
+```
+```{r}
+bin = as.factor(levels(uncal_plotdata_final$bin))
+midpoint = c(seq(from = 0.05, to = 0.95, by = 0.1))
+plot_data = data.frame(bin,midpoint)
+uncal_plotdata_final = left_join(plot_data, uncal_plotdata_final)
+uncal_plotdata_final$weight[is.na(uncal_plotdata_final$weight)] <- 0
+
+conf_plotdata__dirichlet_final = ggplot(uncal_plotdata_final, aes(x=midpoint, y=accuracy)) +
+      geom_bar(aes(x=midpoint, y=accuracy, fill= c("salmon", rep("blue", 9))), stat="identity", colour="black", size = 0.6 , width = 0.1, position=position_dodge(0.5)) +
+      ylim(0,1) +
+      ylab("Accuracy") + 
+      xlab("Confidence") +
+      ggtitle("Reliability Plot: L2 Binomial Calibration TME") +
+      scale_fill_manual(name = NULL,guide = "legend",values=c("blue", "salmon"), labels = c("Observed Accuracy", "Gap Predicted Mean")) +
+      scale_x_continuous(limits= c(0,1),labels=c(seq(from = 0, to = 1, by = 0.2)), breaks=c(seq(from = 0, to = 1, by = 0.2))) + 
+      geom_abline(intercept = 0, slope = 1, size=1.3,linetype = "dashed", colour = "darkgray") +
+      geom_linerange(aes(ymin = accuracy, ymax = midpoint), size = sqrt(uncal_plotdata_final$weight*30), colour ="salmon") +
+      theme_classic() + 
+      theme(axis.text.x = element_text(colour="black", size = 13)) +
+      theme(axis.text.y = element_text(colour="black",size = 13)) + 
+      theme(plot.title = element_text(colour="black", size=13,hjust = 0, vjust=0)) +
+      theme(axis.title.x = element_text(colour="black", size =13, vjust = 0.05)) +
+      theme(axis.title.y = element_text(colour="black", size=13)) +
+      theme(legend.title = element_text(color = "black", size = 13),
+            legend.text = element_text(color = "black", size = 13),
+            legend.position = c(0.3,0.85),
+            legend.background = element_blank())     
+conf_plotdata__dirichlet_final
+
+ggsave("conf_plotdata__dirichlet_final.svg",conf_plotdata__dirichlet_final, height = 4, width=6)
+
+```
+
+#Confidence histograms?
+#Confidence plot 
+plot(uncal_plotdata_final$confidence,(uncal_plotdata_final$High/uncal_plotdata_final$n))
+```{r}
+ggplot(data_dir_uncal) +
+              geom_histogram(aes(x=High, fill="#e9ecef", alpha=0.6, position = 'identity')) +
+              geom_histogram(aes(x=Low, fill="blue", alpha=0.6, position = 'identity'))
+
+        
+ggplot(data_dir_cal_final) +
+              geom_histogram(aes(x=High, fill="#e9ecef", alpha=0.6, position = 'identity')) +
+              geom_histogram(aes(x=Low, fill="blue", alpha=0.6, position = 'identity'))
+ 
+```
+
+
+#Base cal plots
+```{r}
+cal_obj <- calibration(as.factor(data_dir_uncal$true_class) ~ 1 - data_dir_uncal$High , data = data_dir_uncal, cuts = 10)
+plot(cal_obj, type = "l", auto.key = list(columns = 1,
+                                          lines = TRUE,
+                                          points = TRUE))
+
+cal_obj = cal_obj$data
+
+ggplot(cal_obj, aes(x = midpoint ,y = Percent)) +
+     geom_smooth(size=1.5, se=FALSE,fill = "blue", alpha = 0.1) +
+     geom_abline(intercept=0, linetype= "dashed")
+
+tme_uncal_plot = ggplot(cal_obj, aes(x = midpoint ,y = Percent)) +
+     geom_smooth(size=1.5, se=FALSE,fill = "blue", alpha = 0.1) +
+     stat_smooth(geom='ribbon', aes(ymin = ifelse(..ymin.. < 0, 0, ..ymin..),ymax = ifelse(..ymax.. > 100, 100, ..ymax..)), alpha = 0.1,fill = "blue",linetype = 0) +
+     geom_abline(intercept=0, linetype= "dashed") +
+    ylim(0,100) +
+    xlab("Mean Predicted Value") +
+    ylab("Observed Event Percentage") +
+    ggtitle("TME Base Model Calibration Plot")  +
+    scale_colour_manual(name = NULL, labels = c("TME Calibration [95% CI]"), values = c("blue")) +
+    theme_classic() +
+                  theme(panel.grid.major.y = element_line(colour = "gray", size = 0.15)) +
+                theme(panel.grid.minor.y = element_line(colour = "gray", size = 0.1)) +
+                theme(panel.grid.major.x = element_line(colour = "gray", size = 0.15)) +
+                theme(panel.grid.minor.x = element_line(colour = "gray", size = 0.1)) +
+                theme(axis.text.x = element_text(colour="black", size = 15)) +
+                theme(axis.text.y = element_text(colour="black",size = 15)) + 
+                theme(plot.title = element_text(colour="black", size=15,hjust = 0, vjust=0)) +
+                theme(axis.title.x = element_text(colour="black", size =15, vjust = 0.05)) +
+                theme(axis.title.y = element_text(colour="black", size=15)) +
+                theme(legend.title = element_text(color = "black", size = 12),
+                      legend.text = element_text(color = "black", size = 12),
+                      legend.position = c(0.8,0.26),
+                      legend.background = element_rect(size=NULL, linetype=NULL,colour =NULL, fill=alpha("white",0.7))) + 
+    guides(colour = guide_legend(name = NULL)) 
+tme_uncal_plot
+
+ggsave("tme_uncal_plot.svg", tme_uncal_plot, width=5, height=4)
+
+```
+#Dirichlet cal plots
+```{r}
+cal_obj <- calibration(as.factor(data_dir_cal_final$true_class) ~ 1 - data_dir_cal_final$High , data = data_dir_cal_final, cuts = 10)
+plot(cal_obj, type = "l", auto.key = list(columns = 1,
+                                          lines = TRUE,
+                                          points = TRUE))
+
+cal_obj = cal_obj$data
+
+ggplot(cal_obj, aes(x = midpoint ,y = Percent)) +
+     geom_smooth(size=1.5, se=FALSE,fill = "blue", alpha = 0.1) +
+     geom_abline(intercept=0, linetype= "dashed")
+
+tme_dir_plot = ggplot(cal_obj, aes(x = midpoint ,y = Percent)) +
+     geom_smooth(size=1.5, se=FALSE,fill = "blue", alpha = 0.1, span=0.75) +
+     stat_smooth(geom='ribbon', aes(ymin = ifelse(..ymin.. < 0, 0, ..ymin..),ymax = ifelse(..ymax.. > 100, 100, ..ymax..)), alpha = 0.1,fill = "blue",linetype = 0) +
+     geom_abline(intercept=0, linetype= "dashed") +
+    ylim(0,100) +
+    xlab("Mean Predicted Value") +
+    ylab("Observed Event Percentage") +
+    ggtitle("TME L2 Binomial Calibration Plot")  +
+    scale_colour_manual(name = NULL, labels = c("TME Calibration [95% CI]"), values = c("blue")) +
+    theme_classic() +
+                  theme(panel.grid.major.y = element_line(colour = "gray", size = 0.15)) +
+                theme(panel.grid.minor.y = element_line(colour = "gray", size = 0.1)) +
+                theme(panel.grid.major.x = element_line(colour = "gray", size = 0.15)) +
+                theme(panel.grid.minor.x = element_line(colour = "gray", size = 0.1)) +
+                theme(axis.text.x = element_text(colour="black", size = 15)) +
+                theme(axis.text.y = element_text(colour="black",size = 15)) + 
+                theme(plot.title = element_text(colour="black", size=15,hjust = 0, vjust=0)) +
+                theme(axis.title.x = element_text(colour="black", size =15, vjust = 0.05)) +
+                theme(axis.title.y = element_text(colour="black", size=15)) +
+                theme(legend.title = element_text(color = "black", size = 12),
+                      legend.text = element_text(color = "black", size = 12),
+                      legend.position = c(0.8,0.26),
+                      legend.background = element_rect(size=NULL, linetype=NULL,colour =NULL, fill=alpha("white",0.7))) + 
+    guides(colour = guide_legend(name = NULL)) 
+tme_dir_plot
+
+ggsave("tme_dir_plot.svg", tme_dir_plot, width=5, height=4)
+
+```
+
+
+#Calibration_metrics_mean
+```{r}
+uncal_metrics_mean$model = "Uncalibrated"
+uncal_metrics_mean$Metric = c("Accuracy", "Kappa", "Confidence ECE", "Confidence MCE", "Multiclass Brier Score")
+
+dirichlet_metrics_mean$model = "Dirichlet Logloss"
+dirichlet_metrics_mean$Metric = c("Accuracy", "Kappa", "Confidence ECE", "Confidence MCE", "Multiclass Brier Score")
+
+calibration_metrics_mean = rbind(uncal_metrics_mean[,c(1,3:4)],dirichlet_metrics_mean[,c(1,3:4)])
+
+calibration_metrics_mean = dcast(calibration_metrics_mean, Metric~model, value.var="value")
+```
+
+#Calibration metrics 
+```{r}
+colnames(uncal_metrics) = c("Accuracy", "Kappa", "Confidence ECE", "Confidence MCE", "Multiclass Brier Score")
+uncal_metrics$Model = "Uncalibrated"
+uncal_metrics$SKCE = skce_uncal$skce_uncal
+
+colnames(dirichlet_metrics) = c("Accuracy", "Kappa", "Confidence ECE", "Confidence MCE", "Multiclass Brier Score")
+dirichlet_metrics$Model = "L2 Binomial Calibration"
+dirichlet_metrics$SKCE = skce_dir$skce_dir
+
+calibration_metrics = rbind(uncal_metrics,dirichlet_metrics)
+```
+#Summary plots Calibration metrics summary plots
+```{r}
+
+summary(calibration_metrics)
+
+
+calibration_metrics_long = calibration_metrics %>% tidyr::pivot_longer(!Model, names_to = "Metric", values_to = "Value")
+calibration_metrics_long = as.data.frame(calibration_metrics_long)
+
+calibration_metrics_long <- summarySE(calibration_metrics_long, measurevar="Value", groupvars=c("Model", "Metric"))
+calibration_metrics_long_skce = dplyr::filter(calibration_metrics_long, Metric=="SKCE")
+calibration_metrics_long = dplyr::filter(calibration_metrics_long, !Metric=="SKCE")
+
+calibration_metrics_long$Model = factor(calibration_metrics_long$Model, levels = c("Uncalibrated", "L2 Binomial Calibration"))
+calibration_metrics_long_skce$Model = factor(calibration_metrics_long_skce$Model, levels = c("Uncalibrated", "L2 Binomial Calibration"))
+
+calibration_metrics_long$Metric = factor(calibration_metrics_long$Metric, levels = c("Accuracy", "Kappa", "Confidence ECE", "Confidence MCE", "Multiclass Brier Score"))
+
+
+
+tme_calibration_metrics_plot = ggplot(calibration_metrics_long, aes(fill=Model, y=Value, x=Metric)) + 
+    geom_bar(position="dodge", stat="identity") + 
+    geom_errorbar(mapping = aes(ymin=Value-ci,ymax=Value+ci),
+                 position=position_dodge(0.9), width=.3, color = "black", size = 0.5) +
+    ylim(0,1) +
+  ggtitle("TME Calibration Metrics") + 
+  scale_fill_manual(values = c("skyblue3", "purple")) + 
+  theme_classic() +
+                theme(axis.text.x = element_text(colour="black", size = 12,angle = 45, hjust=1)) +
+                theme(axis.text.y = element_text(colour="black",size = 12)) + 
+                theme(plot.title = element_text(colour="black", size=12,hjust = 0, vjust=0)) +
+                theme(axis.title.x = element_text(colour="black", size =12, vjust = 0.05)) +
+                theme(axis.title.y = element_text(colour="black", size=12)) +
+                theme(legend.title = element_text(color = "black", size = 10),
+                      legend.text = element_text(color = "black", size = 10),
+                      legend.background = element_rect(size=NULL, linetype=NULL,colour =NULL, fill=alpha("white",0.7))) + 
+    guides(colour = guide_legend(name = NULL)) 
+
+ggsave("tme_calibration_metrics_plot.svg", tme_calibration_metrics_plot, width=5, height=4)
+write.csv(calibration_metrics_long, file = "calibration_metrics_long_tme.csv")
+
+
+tme_calibration_skce_plot = ggplot(calibration_metrics_long_skce, aes(fill=Model, y=Value, x=Metric)) + 
+    geom_bar(position="dodge", stat="identity") + 
+    geom_errorbar(mapping = aes(ymin=Value-ci,ymax=Value+ci),
+                 position=position_dodge(0.9), width=.3, color = "black", size = 0.5) +
+    ylim(0,0.01) +
+    ggtitle("TME Calibration SKCE Metric") + 
+    scale_fill_manual(values = c("skyblue3", "purple")) + 
+    theme_classic() +
+                theme(axis.text.x = element_text(colour="black", size = 12,angle = 45, hjust=1)) +
+                theme(axis.text.y = element_text(colour="black",size = 12)) + 
+                theme(plot.title = element_text(colour="black", size=12,hjust = 0, vjust=0)) +
+                theme(axis.title.x = element_text(colour="black", size =12, vjust = 0.05)) +
+                theme(axis.title.y = element_text(colour="black", size=12)) +
+                theme(legend.title = element_text(color = "black", size = 10),
+                      legend.text = element_text(color = "black", size = 10),
+                      legend.background = element_rect(size=NULL, linetype=NULL,colour =NULL, fill=alpha("white",0.7))) + 
+    guides(colour = guide_legend(name = NULL)) 
+
+ggsave("tme_calibration_skce_plot.svg", tme_calibration_skce_plot, width=5, height=4)
+write.csv(calibration_metrics_long_skce, file = "calibration_metrics_long_skce_tme.csv")
+
+
+```
+```{r}
+library(tableone)
+
+tme_calibrated_table = CreateTableOne(vars = c("Accuracy", "Kappa", "SKCE","Confidence ECE", "Confidence MCE","Multiclass Brier Score"), strata = c("Model"), data = calibration_metrics)
+
+print(tme_calibrated_table, contDigits = 4, quote = TRUE, noSpaces = TRUE)
+
+tme_calibrated_table_tab <- print(tme_calibrated_table,  contDigits = 4,quote = FALSE, noSpaces = TRUE, printToggle = FALSE, missing = TRUE, smd=TRUE)
+write.csv(tme_calibrated_table_tab, file = "tme_calibrated_table_tab.csv")
+
+
+write.csv(calibration_metrics, file = "tme_calibration_metrics_data.csv")
+
+
+
+data_long = calibration_metrics %>% tidyr::pivot_longer(!Model, names_to = "Metric", values_to = "Value")
+
+mean(calibration_metrics[calibration_metrics$Model=="L2 Binomial Calibration",]$Accuracy)
+sd(calibration_metrics[calibration_metrics$Model=="L2 Binomial Calibration",]$Accuracy)
+
+
+data_long %>%
+  group_by(Metric) %>%
+  rstatix::wilcox_test(data =., Value ~ Model)
+
+tbl_summary(calibration_metrics,
+            by = "Model",
+             include=c("Accuracy","Kappa", "Confidence ECE", "Confidence MCE", "Multiclass Brier Score", "SKCE"),
+            digits = all_continuous() ~ 3,) %>%
+             add_p() 
+
+#Ttests
+
+pairwise.t.test(calibration_metrics$Accuracy, calibration_metrics$Model, p.adj = "BH")
+pairwise.t.test(calibration_metrics$Kappa, calibration_metrics$Model, p.adj = "BH")
+
+pairwise.t.test(calibration_metrics$`Confidence ECE`, calibration_metrics$Model, p.adj = "BH")
+pairwise.t.test(calibration_metrics$`Confidence MCE`, calibration_metrics$Model, p.adj = "BH")
+pairwise.t.test(calibration_metrics$`Class-wise ECE`, calibration_metrics$Model, p.adj = "BH")
+pairwise.t.test(calibration_metrics$`Class-wise MCE`, calibration_metrics$Model, p.adj = "BH")
+pairwise.t.test(calibration_metrics$`Multiclass Brier Score`, calibration_metrics$Model, p.adj = "BH")
+pairwise.t.test(calibration_metrics$SKCE, calibration_metrics$Model, p.adj = "BH")
+
+```
+

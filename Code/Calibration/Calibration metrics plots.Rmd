@@ -1,0 +1,280 @@
+---
+title: "Calibration metrics plots"
+author: "Daniel Skubleny"
+date: '2023-03-03'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#Calibration plots
+```{r}
+#Import data
+urlfile<- 'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/Calibration%20metrics%20data/calibration_metrics_long_acrg.csv'
+calibration_metrics_long_acrg<-read.csv(urlfile)
+calibration_metrics_long_acrg = calibration_metrics_long_acrg[,-1]
+calibration_metrics_long_acrg$Classification = "ACRG"
+
+urlfile<- 'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/Calibration%20metrics%20data/calibration_metrics_long_tcga.csv'
+calibration_metrics_long_tcga<-read.csv(urlfile)
+calibration_metrics_long_tcga = calibration_metrics_long_tcga[,-1]
+calibration_metrics_long_tcga$Classification = "TCGA"
+
+urlfile<- 'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/Calibration%20metrics%20data/calibration_metrics_long_tme.csv'
+calibration_metrics_long_tme<-read.csv(urlfile)
+calibration_metrics_long_tme = calibration_metrics_long_tme[,-1]
+calibration_metrics_long_tme$Classification = "TME"
+
+
+
+urlfile<- 'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/Calibration%20metrics%20data/calibration_metrics_long_skce_acrg.csv'
+calibration_metrics_long_skce_acrg<-read.csv(urlfile)
+calibration_metrics_long_skce_acrg = calibration_metrics_long_skce_acrg[,-1]
+calibration_metrics_long_skce_acrg$Classification = "ACRG"
+calibration_metrics_long_skce_acrg$Classification = as.factor(calibration_metrics_long_skce_acrg$Classification)
+
+
+urlfile<- 'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/Calibration%20metrics%20data/calibration_metrics_long_skce_tcga.csv'
+calibration_metrics_long_skce_tcga<-read.csv(urlfile)
+calibration_metrics_long_skce_tcga = calibration_metrics_long_skce_tcga[,-1]
+calibration_metrics_long_skce_tcga$Classification = "TCGA"
+
+urlfile<- 'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/Calibration%20metrics%20data/calibration_metrics_long_skce_tme.csv'
+calibration_metrics_long_skce_tme<-read.csv(urlfile)
+calibration_metrics_long_skce_tme = calibration_metrics_long_skce_tme[,-1]
+calibration_metrics_long_skce_tme$Classification = "TME"
+
+
+calibration_metrics_long_acrg$Model = factor(calibration_metrics_long_acrg$Model, levels = c("Uncalibrated", "L2 Dirichlet Calibration", "Penalized Multinomial Logistic"))
+
+calibration_metrics_long_tcga$Model = factor(calibration_metrics_long_tcga$Model, levels = c("Uncalibrated", "L2 Dirichlet Calibration", "Penalized Multinomial Logistic"))
+
+calibration_metrics_long_tme$Model = factor(calibration_metrics_long_tme$Model, levels = c("Uncalibrated", "L2 Binomial Calibration"))
+
+calibration_metrics_long_skce_acrg$Model = factor(calibration_metrics_long_skce_acrg$Model, levels = c("Uncalibrated", "L2 Dirichlet Calibration","Penalized Multinomial Logistic"))
+
+calibration_metrics_long_skce_tcga$Model = factor(calibration_metrics_long_skce_tcga$Model, levels = c("Uncalibrated", "L2 Dirichlet Calibration","Penalized Multinomial Logistic"))
+
+calibration_metrics_long_skce_tme$Model = factor(calibration_metrics_long_skce_tme$Model, levels = c("Uncalibrated", "L2 Binomial Calibration"))
+
+calibration_metrics_long_acrg$Metric = factor(calibration_metrics_long_acrg$Metric, levels = c("Accuracy", "Kappa", "Confidence ECE", "Confidence MCE", "Class-wise ECE", "Class-wise MCE",  "Multiclass Brier Score"))
+calibration_metrics_long_tcga$Metric = factor(calibration_metrics_long_tcga$Metric, levels = c("Accuracy", "Kappa", "Confidence ECE", "Confidence MCE", "Class-wise ECE", "Class-wise MCE",  "Multiclass Brier Score"))
+calibration_metrics_long_tme$Metric = factor(calibration_metrics_long_tme$Metric, levels = c("Accuracy", "Kappa", "Confidence ECE", "Confidence MCE", "Multiclass Brier Score"))
+
+calibration_metrics_compile = rbind(calibration_metrics_long_acrg,calibration_metrics_long_tcga)
+calibration_metrics_compile = rbind(calibration_metrics_compile,calibration_metrics_long_tme)
+
+calibration_metrics_skce_compile = rbind(calibration_metrics_long_skce_acrg,calibration_metrics_long_skce_tcga)
+calibration_metrics_skce_compile = rbind(calibration_metrics_skce_compile,calibration_metrics_long_skce_tme)
+
+calibration_metrics_compile$Classification = factor(calibration_metrics_compile$Classification, levels = c("TCGA", "ACRG", "TME"))
+calibration_metrics_skce_compile$Classification = factor(calibration_metrics_skce_compile$Classification, levels = c("TCGA", "ACRG", "TME"))
+
+```
+#Calibration metric plots
+```{r}
+cal_metrics_combined_plot = ggplot(calibration_metrics_compile, aes(fill=Model, y=Value, x=Metric)) + 
+    geom_bar(position="dodge", stat="identity") + 
+    geom_errorbar(mapping = aes(ymin=Value-ci,ymax=Value+ci),
+                 position=position_dodge(0.9), width=.3, color = "black", size = 0.5) +
+    ylim(0,1) +
+  ggtitle("Calibration Metrics") + 
+  scale_fill_manual(name = "Calibration Method",values = c("skyblue3", "purple", "orange", "firebrick")) + 
+  theme_classic() +
+                theme(axis.text.x = element_text(colour="black", size = 14,angle = 25, hjust=1)) +
+                theme(axis.text.y = element_text(colour="black",size = 14)) + 
+                theme(plot.title = element_text(colour="black", size=14,hjust = 0, vjust=0)) +
+                theme(axis.title.x = element_blank()) +
+                theme(axis.title.y = element_text(colour="black", size=14)) +
+                theme(strip.text = element_text(size=12)) + 
+                theme(legend.title = element_text(color = "black", size = 12),
+                      legend.text = element_text(color = "black", size = 12),
+                      legend.position = "right",
+                      legend.background = element_rect(size=NULL, linetype=NULL,colour =NULL, fill=alpha("white",0.7))) + 
+    guides(colour = guide_legend(name = NULL))+ facet_wrap(~Classification, scales = "free")
+ggsave("cal_metrics_combined_plot.svg", cal_metrics_combined_plot, width=14, height=3.5)
+
+
+
+#Calibration ACRG
+cal_metrics_acrg_plot = ggplot(calibration_metrics_long_acrg, aes(fill=Model, y=Value, x=Metric)) + 
+    geom_bar(position="dodge", stat="identity") + 
+    geom_errorbar(mapping = aes(ymin=Value-ci,ymax=Value+ci),
+                 position=position_dodge(0.9), width=.3, color = "black", size = 0.5) +
+    ylim(0,1) +
+  ggtitle("Multiclass Calibration Metrics: ACRG") + 
+  scale_fill_manual(values = c("skyblue3", "purple", "orange")) + 
+  theme_classic() +
+                theme(axis.text.x = element_text(colour="black", size = 14,angle = 25, hjust=1)) +
+                theme(axis.text.y = element_text(colour="black",size = 14)) + 
+                theme(plot.title = element_text(colour="black", size=14,hjust = 0, vjust=0)) +
+                theme(axis.title.x = element_text(colour="black", size =14, vjust = 0.05)) +
+                theme(axis.title.y = element_text(colour="black", size=14)) +
+                theme(legend.title = element_text(color = "black", size = 12),
+                      legend.text = element_text(color = "black", size = 12),
+                      legend.position = "bottom",
+                      legend.background = element_rect(size=NULL, linetype=NULL,colour =NULL, fill=alpha("white",0.7))) + 
+    guides(colour = guide_legend(name = NULL)) 
+
+ggsave("cal_metrics_acrg_plot.svg", cal_metrics_acrg_plot, width=5, height=4)
+ggsave("cal_metrics_acrg_plot_legend.svg", cal_metrics_acrg_plot, width=10, height=4)
+
+
+#Calibration TCGA
+cal_metrics_tcga_plot = ggplot(calibration_metrics_long_tcga, aes(fill=Model, y=Value, x=Metric)) + 
+    geom_bar(position="dodge", stat="identity") + 
+    geom_errorbar(mapping = aes(ymin=Value-ci,ymax=Value+ci),
+                 position=position_dodge(0.9), width=.3, color = "black", size = 0.5) +
+    ylim(0,1) +
+  ggtitle("Multiclass Calibration Metrics: TCGA") + 
+  scale_fill_manual(values = c("skyblue3", "purple", "orange")) + 
+  theme_classic() +
+                theme(axis.text.x = element_text(colour="black", size = 14,angle = 25, hjust=1)) +
+                theme(axis.text.y = element_text(colour="black",size = 14)) + 
+                theme(plot.title = element_text(colour="black", size=14,hjust = 0, vjust=0)) +
+                theme(axis.title.x = element_text(colour="black", size =14, vjust = 0.05)) +
+                theme(axis.title.y = element_text(colour="black", size=14)) +
+                theme(legend.title = element_text(color = "black", size = 12),
+                      legend.text = element_text(color = "black", size = 12),
+                      legend.position = "bottom",
+                      legend.background = element_rect(size=NULL, linetype=NULL,colour =NULL, fill=alpha("white",0.7))) + 
+    guides(colour = guide_legend(name = NULL)) 
+ggsave("cal_metrics_tcga_plot.svg", cal_metrics_tcga_plot, width=5, height=4)
+
+
+#Calibration TME
+cal_metrics_tme_plot = ggplot(calibration_metrics_long_tme, aes(fill=Model, y=Value, x=Metric)) + 
+    geom_bar(position="dodge", stat="identity") + 
+    geom_errorbar(mapping = aes(ymin=Value-ci,ymax=Value+ci),
+                 position=position_dodge(0.9), width=.3, color = "black", size = 0.5) +
+    ylim(0,1) +
+  ggtitle("Binary Calibration Metrics: TME") + 
+  scale_fill_manual(values = c("skyblue3", "firebrick")) + 
+  theme_classic() +
+                theme(axis.text.x = element_text(colour="black", size = 14,angle = 25, hjust=1)) +
+                theme(axis.text.y = element_text(colour="black",size = 14)) + 
+                theme(plot.title = element_text(colour="black", size=14,hjust = 0, vjust=0)) +
+                theme(axis.title.x = element_text(colour="black", size =14, vjust = 0.05)) +
+                theme(axis.title.y = element_text(colour="black", size=14)) +
+                theme(legend.title = element_text(color = "black", size = 12),
+                      legend.text = element_text(color = "black", size = 12),
+                      legend.position = "bottom",
+                      legend.background = element_rect(size=NULL, linetype=NULL,colour =NULL, fill=alpha("white",0.7))) + 
+    guides(colour = guide_legend(name = NULL)) 
+ggsave("cal_metrics_tme_plot.svg", cal_metrics_tme_plot, width=4, height=4)
+
+```
+#Calibration SKCE
+```{r}
+cal_metrics_skce_combined_plot = ggplot(calibration_metrics_skce_compile, aes(fill=Model, y=Value, x=Metric)) + 
+    geom_bar(position="dodge", stat="identity") + 
+    geom_errorbar(mapping = aes(ymin=Value-ci,ymax=Value+ci),
+                 position=position_dodge(0.9), width=.3, color = "black", size = 0.5) +
+    ylim(-0.00025,0.013) +
+  ggtitle("Squared Kernal Calibration Error Comparison") + 
+  scale_fill_manual(name = "Calibration Method",values = c("skyblue3", "purple", "orange", "firebrick")) + 
+  theme_classic() +
+                theme(axis.text.x = element_text(colour="black", size = 14)) +
+                theme(axis.text.y = element_text(colour="black",size = 14)) + 
+                theme(plot.title = element_text(colour="black", size=14,hjust = 0, vjust=0)) +
+                theme(axis.title.x = element_blank()) +
+                theme(axis.title.y = element_text(colour="black", size=14)) +
+                theme(strip.text = element_text(size=12)) + 
+                theme(legend.title = element_text(color = "black", size = 14),
+                      legend.text = element_text(color = "black", size = 14),
+                      legend.position = "none",
+                      legend.background = element_rect(size=NULL, linetype=NULL,colour =NULL, fill=alpha("white",0.7))) + 
+    guides(colour = guide_legend(name = NULL))+ facet_wrap(~Classification, scales = "free")
+ggsave("cal_metrics_skce_combined_plot.svg", cal_metrics_skce_combined_plot, width=14, height=3.5)
+
+cal_metrics_skce_combined_legend_plot = ggplot(calibration_metrics_skce_compile, aes(fill=Model, y=Value, x=Metric)) + 
+    geom_bar(position="dodge", stat="identity") + 
+    geom_errorbar(mapping = aes(ymin=Value-ci,ymax=Value+ci),
+                 position=position_dodge(0.9), width=.3, color = "black", size = 0.5) +
+    ylim(-0.00025,0.013) +
+  ggtitle("Squared Kernal Calibration Error Comparison") + 
+  scale_fill_manual(name = "Calibration Method",values = c("skyblue3", "purple", "orange", "firebrick")) + 
+  theme_classic() +
+                theme(axis.text.x = element_text(colour="black", size = 14)) +
+                theme(axis.text.y = element_text(colour="black",size = 14)) + 
+                theme(plot.title = element_text(colour="black", size=14,hjust = 0, vjust=0)) +
+                theme(axis.title.x = element_blank()) +
+                theme(axis.title.y = element_text(colour="black", size=14)) +
+                theme(strip.text = element_text(size=12)) + 
+                theme(legend.title = element_text(color = "black", size = 14),
+                      legend.text = element_text(color = "black", size = 14),
+                      legend.position = "bottom",
+                      legend.background = element_rect(size=NULL, linetype=NULL,colour =NULL, fill=alpha("white",0.7))) + 
+    guides(colour = guide_legend(name = NULL))+ facet_wrap(~Classification, scales = "free") 
+
+ggsave("cal_metrics_skce_combined_legend_plot.svg", cal_metrics_skce_combined_legend_plot, width=14, height=3.5)
+
+#ACRG SKCE
+cal_skcemetrics_acrg_plot = ggplot(calibration_metrics_long_skce_acrg, aes(fill=Model, y=Value, x=Metric)) + 
+    geom_bar(position="dodge", stat="identity") + 
+    geom_errorbar(mapping = aes(ymin=Value-ci,ymax=Value+ci),
+                 position=position_dodge(0.9), width=.3, color = "black", size = 0.5) +
+    ylim(-0.00025,0.013) +
+  ggtitle("Multiclass Calibration Metrics: ACRG") + 
+  scale_fill_manual(values = c("skyblue3", "purple", "orange")) + 
+  theme_classic() +
+                theme(axis.text.x = element_text(colour="black", size = 12,angle = 30, hjust=1)) +
+                theme(axis.text.y = element_text(colour="black",size = 12)) + 
+                theme(plot.title = element_text(colour="black", size=12,hjust = 0, vjust=0)) +
+                theme(axis.title.x = element_text(colour="black", size =12, vjust = 0.05)) +
+                theme(axis.title.y = element_text(colour="black", size=12)) +
+                theme(legend.title = element_text(color = "black", size = 10),
+                      legend.text = element_text(color = "black", size = 10),
+                      legend.position = "none",
+                      legend.background = element_rect(size=NULL, linetype=NULL,colour =NULL, fill=alpha("white",0.7))) + 
+    guides(colour = guide_legend(name = NULL)) 
+ggsave("cal_metrics_skce_acrg.svg", cal_skcemetrics_acrg_plot, width=4, height=3.5)
+
+
+#TCGA SKCE
+cal_skcemetrics_tcga_plot = ggplot(calibration_metrics_long_skce_tcga, aes(fill=Model, y=Value, x=Metric)) + 
+    geom_bar(position="dodge", stat="identity") + 
+    geom_errorbar(mapping = aes(ymin=Value-ci,ymax=Value+ci),
+                 position=position_dodge(0.9), width=.3, color = "black", size = 0.5) +
+    ylim(-0.00025,0.013) +
+  ggtitle("Multiclass Calibration Metrics: ACRG") + 
+  scale_fill_manual(values = c("skyblue3", "purple", "orange")) + 
+  theme_classic() +
+                theme(axis.text.x = element_text(colour="black", size = 12,angle = 30, hjust=1)) +
+                theme(axis.text.y = element_text(colour="black",size = 12)) + 
+                theme(plot.title = element_text(colour="black", size=12,hjust = 0, vjust=0)) +
+                theme(axis.title.x = element_text(colour="black", size =12, vjust = 0.05)) +
+                theme(axis.title.y = element_text(colour="black", size=12)) +
+                theme(legend.title = element_text(color = "black", size = 10),
+                      legend.text = element_text(color = "black", size = 10),
+                      legend.position = "bottom",
+                      legend.background = element_rect(size=NULL, linetype=NULL,colour =NULL, fill=alpha("white",0.7))) + 
+    guides(colour = guide_legend(name = NULL)) 
+
+#TME SKCE
+cal_skcemetrics_tme_plot = ggplot(calibration_metrics_long_skce_tme, aes(fill=Model, y=Value, x=Metric)) + 
+    geom_bar(position="dodge", stat="identity") + 
+    geom_errorbar(mapping = aes(ymin=Value-ci,ymax=Value+ci),
+                 position=position_dodge(0.9), width=.3, color = "black", size = 0.5) +
+    ylim(-0.00025,0.013) +
+  ggtitle("Multiclass Calibration Metrics: ACRG") + 
+  scale_fill_manual(values = c("skyblue3", "firebrick")) + 
+  theme_classic() +
+                theme(axis.text.x = element_text(colour="black", size = 12,angle = 30, hjust=1)) +
+                theme(axis.text.y = element_text(colour="black",size = 12)) + 
+                theme(plot.title = element_text(colour="black", size=12,hjust = 0, vjust=0)) +
+                theme(axis.title.x = element_text(colour="black", size =12, vjust = 0.05)) +
+                theme(axis.title.y = element_text(colour="black", size=12)) +
+                theme(legend.title = element_text(color = "black", size = 10),
+                      legend.text = element_text(color = "black", size = 10),
+                      legend.position = "bottom",
+                      legend.background = element_rect(size=NULL, linetype=NULL,colour =NULL, fill=alpha("white",0.7))) + 
+    guides(colour = guide_legend(name = NULL)) 
+
+```
+
+
+

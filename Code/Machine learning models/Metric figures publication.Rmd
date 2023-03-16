@@ -1,0 +1,884 @@
+---
+title: "Metric plots"
+author: "Daniel Skubleny"
+date: "21/09/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#Load libraries
+```{r}
+library(ggplot)
+
+```
+
+
+
+#Import data
+Note needed to fix the names for the models. Feature selection was LASSO and the model was elastic net. 
+
+```{r}
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/Final%20metrics%20data/compile_tcga_model_final.csv'
+tcga_models<-read.csv(urlfile)
+tcga_models = tcga_models[,-1]
+tcga_models_long = melt(tcga_models, id.vars=c("Model", "FS"))
+tcga_models_long$FS = str_replace_all(tcga_models_long$FS , c("Elastic Net"= "LASSO")) 
+tcga_models_long$FS = as.factor(tcga_models_long$FS)
+tcga_models_long$FS = factor(tcga_models_long$FS, levels = c("SVM","GBM","LASSO","Full"))
+tcga_models_long_nokappa<-tcga_models_long[!(tcga_models_long$variable=="Kappa"),]
+tcga_models_long_nobrier<-tcga_models_long_nokappa[!(tcga_models_long_nokappa$variable=="Brier_score"),]
+tcga_models_long_noacc<-tcga_models_long_nokappa[!(tcga_models_long_nokappa$variable=="Accuracy"),]
+
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/Final%20metrics%20data/compile_acrg_model.csv'
+acrg_models<-read.csv(urlfile)
+acrg_models = acrg_models[,-1]
+acrg_models_long = melt(acrg_models, id.vars=c("Model", "FS"))
+acrg_models_long$FS = str_replace_all(acrg_models_long$FS , c("Elastic Net"= "LASSO")) 
+acrg_models_long$FS = as.factor(acrg_models_long$FS)
+acrg_models_long$FS = factor(acrg_models_long$FS, levels = c("SVM","GBM","LASSO","Full"))
+acrg_models_long_nokappa<-acrg_models_long[!(acrg_models_long$variable=="Kappa"),]
+acrg_models_long_nobrier<-acrg_models_long_nokappa[!(acrg_models_long_nokappa$variable=="Brier_score"),]
+acrg_models_long_noacc<-acrg_models_long_nokappa[!(acrg_models_long_nokappa$variable=="Accuracy"),]
+
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/Final%20metrics%20data/compile_tme_models_final.csv'
+tme_models<-read.csv(urlfile)
+tme_models = tme_models[,-1]
+tme_models_long = melt(tme_models, id.vars=c("Model", "FS"))
+tme_models_long$FS = str_replace_all(tme_models_long$FS , c("Elastic Net"= "LASSO")) 
+tme_models_long$FS = as.factor(tme_models_long$FS)
+tme_models_long$FS = factor(tme_models_long$FS, levels = c("SVM","GBM","LASSO","Full"))
+tme_models_long_nokappa<-tme_models_long[!(tme_models_long$variable=="Kappa"),]
+tme_models_long_nobrier<-tme_models_long_nokappa[!(tme_models_long_nokappa$variable=="Brier_score"),]
+tme_models_long_noacc<-tme_models_long_nokappa[!(tme_models_long_nokappa$variable=="Accuracy"),]
+```
+
+
+```{r}
+ggplot(tcga_models, aes(x=reorder(Model, -Accuracy), y=Accuracy, fill=FS)) + 
+    geom_boxplot() +
+  geom_jitter( size=2, alpha=0.1) +
+  ylim(c(0,1)) 
+
+
+
+ggplot(tme_models_long, aes(x=Model, y=value)) +
+  facet_grid(.~variable) +
+  stat_summary(mapping=aes(fill=variable), fun=mean, geom='bar', alpha=0.5, color='black') +
+  stat_summary(fun.data = mean_sdl,fun.args = list(mult = 1), geom='errorbar', color='black') +
+  geom_jitter(aes(color=variable), 
+              position=position_jitter(width=0.2), alpha=0.8) +
+  theme(axis.text.x = element_text(angle=45))
+
+ggplot(acrg_models_long, aes(x=Model, y=value)) +
+  facet_grid(.~variable) +
+  stat_summary(mapping=aes(fill=variable), fun=mean, geom='bar', alpha=0.5, color='black') +
+  stat_summary(fun.data = mean_sdl,fun.args = list(mult = 1), geom='errorbar', color='black') +
+  geom_jitter(aes(color=variable), 
+              position=position_jitter(width=0.2), alpha=0.8) +
+  theme(axis.text.x = element_text(angle=45))
+
+tcga_plot = ggplot(tcga_models_long, aes(x=Model, y=value)) +
+  facet_grid(.~variable) +
+  stat_summary(mapping=aes(fill=variable), fun=mean, geom='bar', alpha=0.5, color='black') +
+  stat_summary(fun.data = mean_sdl,fun.args = list(mult = 1), geom='errorbar', color='black') +
+  geom_jitter(aes(color=variable), 
+              position=position_jitter(width=0.2), alpha=0.8) +
+  theme(axis.text.x = element_text(angle=45))  
+
+ggsave("tcga_plot.svg", tcga_plot, width = 12, height = 4)
+
+
+
+level_order = c("Full Elastic Net", "Elastic Net Elastic Net", "NB Elastic Net", "RF Elastic Net", "GBM Elastic Net", "KNN Elastic Net", "SVM Elastic Net", "NNET Elastic Net", "Full GBM", "Elastic Net GBM", "NB GBM", "RF GBM","GBM GBM", "KNN GBM", "SVM GBM", "NNET GBM", "Full SVM","Elastic Net SVM", "NB SVM",  "RF SVM", "GBM SVM", "KNN SVM", "SVM SVM", "NNET SVM" )
+
+labels = c("Full Elastic Net"= "Full LASSO", "Elastic Net Elastic Net" = "ElasticNet", "NB Elastic Net"="NB", "RF Elastic Net" = "RF", "GBM Elastic Net" = "GBM", "KNN Elastic Net" = "KNN", "SVM Elastic Net" = "SVM", "NNET Elastic Net" = "NNET", "Elastic Net GBM" = "ElasticNet", "NB GBM" = "NB", "RF GBM"= "RF","GBM GBM" = "GBM", "KNN GBM" = "KNN", "SVM GBM" = "SVM", "NNET GBM" = "NNET","Elastic Net SVM"= "ElasticNet", "NB SVM"= "NB",  "RF SVM"= "RF", "GBM SVM"= "GBM", "KNN SVM"= "KNN", "SVM SVM"= "SVM", "NNET SVM"= "NNET" )
+
+facet_labels = as_labeller(c("Accuracy" = "Accuracy", "Brier_score" = "Brier Score" ))
+
+
+
+```
+#TCGA Models
+"#50af98", "#1F78B4","#B2DF8A", "#33A02C"
+```{r}
+#CI bootstrap confidence intervals with 1000 bootstraps
+
+tcga_plot = ggplot(tcga_models_long_nobrier, aes(x=factor(Model, level=level_order), y=value)) +
+  stat_summary(mapping=aes(fill=FS, alpha=ifelse(grepl("Net Elastic", Model), 0, 1),size=ifelse(grepl("Net Elastic", Model), "B", "A")), fun=mean, geom='bar', color='black') +
+  stat_summary(fun.data = mean_cl_boot, geom='errorbar', color='black', width=0.7) +
+  scale_fill_manual(name = "Feature Selection",values=c("#50af98","#B2DF8A", "#33A02C","#1F78B4")) +
+  scale_alpha(range=c(1,0.65)) +
+  scale_size_manual(values=c(0.1, 1), guide = "none") +
+  scale_x_discrete(labels=labels) +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.2)) +
+  ylab("Value") +
+  ggtitle("TCGA Models Accuracy") +
+  theme_classic() +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_text(size=14)) +
+  theme(panel.grid.major.y = element_line(colour = "gray", size = 0.15)) +
+                theme(panel.grid.minor.y = element_line(colour = "gray", size = 0.1)) +
+  theme(axis.text.x = element_text(colour="black", size = 14,angle = 90, hjust=1, vjust=0.5)) +
+  theme(axis.text.y = element_text(colour="black",size = 14)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0)) +
+  theme(axis.title.x = element_blank()) +
+  theme(axis.title.y = element_text(colour="black", size=14)) +
+  theme(legend.position = "bottom",
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 14)) + 
+        guides(alpha=FALSE, linetype=FALSE,
+         fill=guide_legend(reverse=TRUE))
+
+ggsave("tcga_plot.svg", tcga_plot, width = 6, height = 4.5)
+ggsave("tcga_plot_legend.svg", tcga_plot, width = 6, height = 3.5)
+
+##TCGA BRIER
+tcga_plot_brier = ggplot(tcga_models_long_noacc, aes(x=factor(Model, level=level_order), y=value)) +
+  stat_summary(mapping=aes(fill=FS, alpha=ifelse(grepl("Net Elastic", Model), 0, 1),size=ifelse(grepl("Net Elastic", Model), "B", "A")), fun=mean, geom='bar', color='black') +
+  stat_summary(fun.data = mean_cl_boot, geom='errorbar', color='black', width=0.7) +
+  scale_fill_manual(name = "Feature Selection",values=c("#50af98","#B2DF8A", "#33A02C","#1F78B4")) +
+  scale_alpha(range=c(1,0.5)) +
+  scale_size_manual(values=c(0.1, 1), guide = "none") +
+  scale_x_discrete(labels=labels) +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.2)) +
+  ylab("Value") +
+  ggtitle("TCGA Models Brier Score") +
+ theme_classic() +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_text(size=14)) +
+  theme(panel.grid.major.y = element_line(colour = "gray", size = 0.15)) +
+                theme(panel.grid.minor.y = element_line(colour = "gray", size = 0.1)) +
+  theme(axis.text.x = element_text(colour="black", size = 14,angle = 90, hjust=1, vjust=0.5)) +
+  theme(axis.text.y = element_text(colour="black",size = 14)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0)) +
+  theme(axis.title.x = element_blank()) +
+  theme(axis.title.y = element_text(colour="black", size=14)) +
+  theme(legend.position = "bottom",
+         legend.text = element_text(size = 14),
+        legend.title = element_text(size = 14)) + guides(alpha=FALSE, linetype=FALSE,
+         fill=guide_legend(reverse=TRUE))
+
+ggsave("tcga_plot_brier.svg", tcga_plot_brier, width = 6, height = 4.5)
+
+
+```
+#ACRG MODELS
+```{r}
+###ACRG accuracy 
+acrg_plot = ggplot(acrg_models_long_nobrier, aes(x=factor(Model, level=level_order), y=value)) +
+  stat_summary(mapping=aes(fill=FS, alpha=ifelse(grepl("GBM SVM", Model), 0, 1),size=ifelse(grepl("GBM SVM", Model), "B", "A")), fun=mean, geom='bar', color='black') +
+  stat_summary(fun.data = mean_cl_boot, geom='errorbar', color='black',width=0.7) +
+  scale_fill_manual(name = "Feature Selection",values=c("#50af98","#B2DF8A", "#33A02C","#1F78B4")) +
+  scale_alpha(range=c(1,0.65)) +
+  scale_size_manual(values=c(0.1, 1), guide = "none") +
+  scale_x_discrete(labels=labels) +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.2)) +
+  ylab("Value") +
+  ggtitle("ACRG Models Accuracy") +
+ theme_classic() +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_text(size=14)) +
+  theme(panel.grid.major.y = element_line(colour = "gray", size = 0.15)) +
+                theme(panel.grid.minor.y = element_line(colour = "gray", size = 0.1)) +
+  theme(axis.text.x = element_text(colour="black", size = 14,angle = 90, hjust=1, vjust=0.5)) +
+  theme(axis.text.y = element_text(colour="black",size = 14)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0)) +
+  theme(axis.title.x = element_blank()) +
+  theme(axis.title.y = element_text(colour="black", size=14)) +
+ theme(legend.position = "bottom",
+         legend.text = element_text(size = 14),
+        legend.title = element_text(size = 14)) + guides(alpha=FALSE, linetype=FALSE,
+         fill=guide_legend(reverse=TRUE))
+
+ggsave("acrg_plot.svg", acrg_plot, width = 6, height = 4.5)
+
+
+acrg_plot_brier = ggplot(acrg_models_long_noacc, aes(x=factor(Model, level=level_order), y=value)) +
+  stat_summary(mapping=aes(fill=FS, alpha=ifelse(grepl("GBM SVM", Model), 0, 1),size=ifelse(grepl("GBM SVM", Model), "B", "A")), fun=mean, geom='bar', color='black') +
+  stat_summary(fun.data = mean_cl_boot, geom='errorbar', color='black', width=0.7) +
+  scale_fill_manual(name = "Feature Selection",values=c("#50af98","#B2DF8A", "#33A02C","#1F78B4")) +
+  scale_alpha(range=c(1,0.65)) +
+  scale_size_manual(values=c(0.1, 1), guide = "none") +
+  scale_x_discrete(labels=labels) +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.2)) +
+  ylab("Value") +
+  ggtitle("ACRG Models Brier Score") +
+ theme_classic() +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_text(size=14)) +
+  theme(panel.grid.major.y = element_line(colour = "gray", size = 0.15)) +
+                theme(panel.grid.minor.y = element_line(colour = "gray", size = 0.1)) +
+  theme(axis.text.x = element_text(colour="black", size = 14,angle = 90, hjust=1, vjust=0.5)) +
+  theme(axis.text.y = element_text(colour="black",size = 14)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0)) +
+  theme(axis.title.x = element_blank()) +
+  theme(axis.title.y = element_text(colour="black", size=14)) +
+  theme(legend.position = "bottom",
+         legend.text = element_text(size = 14),
+        legend.title = element_text(size = 14)) + guides(alpha=FALSE, linetype=FALSE,
+         fill=guide_legend(reverse=TRUE))
+
+ggsave("acrg_plot_brier.svg", acrg_plot_brier, width = 6, height = 4.5)
+
+```
+
+#TME MODELS
+```{r}
+tme_plot = ggplot(tme_models_long_nobrier, aes(x=factor(Model, level=level_order), y=value)) +
+  stat_summary(mapping=aes(fill=FS, alpha=ifelse(grepl("RF GBM", Model), 0, 1),size=ifelse(grepl("RF GBM", Model), "B", "A")), fun=mean, geom='bar', color='black') +
+  stat_summary(fun.data = mean_cl_boot, geom='errorbar', color='black', width=0.7) +
+  scale_fill_manual(name = "Feature Selection",values=c("#50af98","#B2DF8A", "#33A02C","#1F78B4")) +
+  scale_alpha(range=c(1,0.65)) +
+  scale_size_manual(values=c(0.1, 1), guide = "none") +
+  scale_x_discrete(labels=labels) +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.2)) +
+  ylab("Value") +
+  ggtitle("TME Models Accuracy ") +
+ theme_classic() +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_text(size=14)) +
+  theme(panel.grid.major.y = element_line(colour = "gray", size = 0.15)) +
+                theme(panel.grid.minor.y = element_line(colour = "gray", size = 0.1)) +
+  theme(axis.text.x = element_text(colour="black", size = 14,angle = 90, hjust=1, vjust=0.5)) +
+  theme(axis.text.y = element_text(colour="black",size = 14)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0)) +
+  theme(axis.title.x = element_blank()) +
+  theme(axis.title.y = element_text(colour="black", size=14)) +
+  theme(legend.position = "bottom",
+         legend.text = element_text(size = 14),
+        legend.title = element_text(size = 14)) + guides(alpha=FALSE, linetype=FALSE,
+         fill=guide_legend(reverse=TRUE))
+
+ggsave("tme_plot.svg", tme_plot, width = 6, height = 4.5)
+
+
+tme_plot_brier = ggplot(tme_models_long_noacc, aes(x=factor(Model, level=level_order), y=value)) +
+  stat_summary(mapping=aes(fill=FS, alpha=ifelse(grepl("RF GBM", Model), 0, 1),size=ifelse(grepl("RF GBM", Model), "B", "A")), fun=mean, geom='bar', color='black') +
+  stat_summary(fun.data = mean_cl_boot, geom='errorbar', color='black', width=0.7) +
+  scale_fill_manual(name = "Feature Selection",values=c("#50af98","#B2DF8A", "#33A02C","#1F78B4")) +
+  scale_alpha(range=c(1,0.65)) +
+  scale_size_manual(values=c(0.1, 1), guide = "none") +
+  scale_x_discrete(labels=labels) +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.2)) +
+  ylab("Value") +
+  ggtitle("TME Models Brier Score") +
+ theme_classic() +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_text(size=14)) +
+  theme(panel.grid.major.y = element_line(colour = "gray", size = 0.15)) +
+                theme(panel.grid.minor.y = element_line(colour = "gray", size = 0.1)) +
+  theme(axis.text.x = element_text(colour="black", size = 14,angle = 90, hjust=1, vjust=0.5)) +
+  theme(axis.text.y = element_text(colour="black",size = 14)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0)) +
+  theme(axis.title.x = element_blank()) +
+  theme(axis.title.y = element_text(colour="black", size=14)) +
+  theme(legend.position = "bottom",
+         legend.text = element_text(size = 14),
+        legend.title = element_text(size = 14)) + guides(alpha=FALSE, linetype=FALSE,
+         fill=guide_legend(reverse=TRUE))
+
+
+ggsave("tme_plot_brier.svg", tme_plot_brier, width = 6, height = 4.5)
+```
+
+
+#Summary data
+```{r}
+summarySE(tcga_models, measurevar="Accuracy", groupvars="Model") #Pick EN and EN
+summarySE(acrg_models, measurevar="Accuracy", groupvars="Model") #Pick GBM and SVM feature selection
+summarySE(tme_models, measurevar="Accuracy", groupvars="Model") # Pick RF GBM
+
+```
+#Table one
+Note these were copy and pasted into excel and reordered accordingly. Elastic net Feature selection was renamed correctly to LASSO whereas the model with selected features was correctly labelled elasticnet. 
+```{r}
+metric <- CreateTableOne(vars = c("Accuracy","Kappa", "Brier_score"), strata = c("Model"), data = tcga_models[tcga_models$FS=="Elastic Net",])
+
+print(metric)
+
+##TCGA METRICS EN 
+metric_TCGA <- CreateTableOne(vars = c("Accuracy","Kappa", "Brier_score"), strata = c("Model"), data = tcga_models[tcga_models$FS=="Elastic Net",])
+metric_TCGAmat <- print(metric_TCGA, quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+## Save to a CSV file
+write.csv(metric_TCGAmat, file = "metric_TCGAmat.csv")
+
+metric_TCGA_gbm <- CreateTableOne(vars = c("Accuracy","Kappa", "Brier_score"), strata = c("Model"), data = tcga_models[tcga_models$FS=="GBM",])
+metric_TCGA_gbmmat <- print(metric_TCGA_gbm, quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+## Save to a CSV file
+write.csv(metric_TCGA_gbmmat, file = "metric_TCGA_gbmmat.csv")
+
+metric_TCGA_svm <- CreateTableOne(vars = c("Accuracy","Kappa", "Brier_score"), strata = c("Model"), data = tcga_models[tcga_models$FS=="SVM",])
+metric_TCGA_svmmat <- print(metric_TCGA_svm, quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+## Save to a CSV file
+write.csv(metric_TCGA_svmmat, file = "metric_TCGA_svmmat.csv")
+
+##FULL METRICs TCGA
+metric_full <- CreateTableOne(vars = c("Accuracy","Kappa", "Brier_score"), strata = c("Model"), data = tcga_models[tcga_models$FS=="Full",])
+
+metric_fullmat <- print(metric_full, quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+## Save to a CSV file
+write.csv(metric_fullmat, file = "metric_fullmat.csv")
+
+metric_full_acrg <- CreateTableOne(vars = c("Accuracy","Kappa", "Brier_score"), strata = c("Model"), data = acrg_models[acrg_models$FS=="Full",])
+metric_full_acrgmat <- print(metric_full_acrg, quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+## Save to a CSV file
+write.csv(metric_full_acrgmat, file = "metric_full_acrgmat.csv")
+
+metric_full_tme <- CreateTableOne(vars = c("Accuracy","Kappa", "Brier_score"), strata = c("Model"), data = tme_models[tme_models$FS=="Full",])
+metric_full_tmemat <- print(metric_full_tme, quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+## Save to a CSV file
+write.csv(metric_full_tmemat, file = "metric_full_tmemat.csv")
+
+##ACRG METRICS
+metric_acrg <- CreateTableOne(vars = c("Accuracy","Kappa", "Brier_score"), strata = c("Model"), data = acrg_models[acrg_models$FS=="Elastic Net",])
+metric_acrgmat <- print(metric_acrg, quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+## Save to a CSV file
+write.csv(metric_acrgmat, file = "metric_acrgmat.csv")
+
+metric_acrg_gbm <- CreateTableOne(vars = c("Accuracy","Kappa", "Brier_score"), strata = c("Model"), data = acrg_models[acrg_models$FS=="GBM",])
+metric_acrg_gbmmat <- print(metric_acrg_gbm, quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+## Save to a CSV file
+write.csv(metric_acrg_gbmmat, file = "metric_acrg_gbmmat.csv")
+
+metric_acrg_svm <- CreateTableOne(vars = c("Accuracy","Kappa", "Brier_score"), strata = c("Model"), data = acrg_models[acrg_models$FS=="SVM",])
+metric_acrg_svmmat <- print(metric_acrg_svm, quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+## Save to a CSV file
+write.csv(metric_acrg_svmmat, file = "metric_acrg_svmmat.csv")
+
+##TME METRICS
+metric_tme <- CreateTableOne(vars = c("Accuracy","Kappa", "Brier_score"), strata = c("Model"), data = tme_models[tme_models$FS=="Elastic Net",])
+metric_tmemat <- print(metric_tme, quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+## Save to a CSV file
+write.csv(metric_tmemat, file = "metric_tmemat.csv")
+
+metric_tme_gbm <- CreateTableOne(vars = c("Accuracy","Kappa", "Brier_score"), strata = c("Model"), data = tme_models[tme_models$FS=="GBM",])
+metric_tme_gbmmat <- print(metric_tme_gbm , quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+## Save to a CSV file
+write.csv(metric_tme_gbmmat, file = "metric_tme_gbmmat.csv")
+
+metric_tme_svm <- CreateTableOne(vars = c("Accuracy","Kappa", "Brier_score"), strata = c("Model"), data = tme_models[tme_models$FS=="SVM",])
+metric_tme_svmmat <- print(metric_tme_svm, quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+## Save to a CSV file
+write.csv(metric_tme_svmmat, file = "metric_tme_svmmatmat.csv")
+
+```
+#gtsummary
+```{r}
+CreateTableOne(vars = c("Accuracy","Kappa", "Brier_score"), strata = c("Model"), data = tcga_models[tcga_models$FS=="Elastic Net",])
+
+tb_tcga = tbl_summary(tcga_models[tcga_models$FS=="Elastic Net",], 
+                      by = "Model",
+             percent = "column", 
+             include=c("Accuracy","Kappa", "Brier_score")) %>% add_p()
+   remove_row_type(variables = everything(),type = "missing") %>% 
+   add_n(col_label="**n/N (Missing %)**", statistic= "{n} / {N} ({p_miss}%)", add_footnote = "Percent") 
+ 
+tb_overall_flex = as_flex_table(
+  tb_overall,
+  include = everything(),
+  return_calls = FALSE,
+  strip_md_bold = TRUE
+)
+ 
+save_as_docx("tb_overall" = tb_overall_flex,path = "#make file name")
+
+
+```
+
+#OLD normal CI
+```{r}
+ ggplot(tcga_models_long_nobrier, aes(x=factor(Model, level=level_order), y=value)) +
+  stat_summary(mapping=aes(fill=FS, alpha=ifelse(grepl("Net Elastic", Model), 0, 1),size=ifelse(grepl("Net Elastic", Model), "B", "A")), fun=mean, geom='bar', color='black') +
+  stat_summary(fun.data = mean_cl_normal,fun.args = list(mult = 1), geom='errorbar', color='black') +
+  scale_fill_manual(values=c("#50af98", "#1F78B4","#B2DF8A", "#33A02C")) +
+  scale_alpha(range=c(1,0.5)) +
+  scale_size_manual(values=c(0.1, 1), guide = "none") +
+  scale_x_discrete(labels=labels) +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.1)) +
+  ylab("Value") +
+  ggtitle("TCGA Models Accuracy") +
+  theme_classic() +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_text(size=12)) +
+  theme(panel.grid.major.y = element_line(colour = "gray", size = 0.15)) +
+                theme(panel.grid.minor.y = element_line(colour = "gray", size = 0.1)) +
+  theme(axis.text.x = element_text(colour="black", size = 10,angle = 90, hjust=1, vjust=0.5)) +
+  theme(axis.text.y = element_text(colour="black",size = 12)) + 
+  theme(plot.title = element_text(colour="black", size=12,hjust = 0)) +
+  theme(axis.title.x = element_blank()) +
+  theme(axis.title.y = element_text(colour="black", size=12)) +
+  theme(legend.position = "none" ) + guides(alpha=FALSE, linetype=FALSE,
+         fill=guide_legend(reverse=TRUE))
+
+```
+#OLD plots
+```{r}
+ggplot(tcga_models, aes(x=reorder(Model, -Accuracy), y=Accuracy)) +
+        stat_summary(mapping=aes(fill=FS), fun=mean, geom='bar', alpha=0.5, color='black') +
+        stat_summary(fun.data = mean_sdl,fun.args = list(mult = 1), geom='errorbar', color='black') +
+        geom_jitter(aes(color=FS), position=position_jitter(width=0.2), alpha=0.8) +
+      scale_fill_manual("FS", values = c("Elastic Net" = "#4DBBD5FF", "Full" = "#00A087FF", "GBM" = "#3C5488FF", "SVM" = "#F39B7FFF" )) + 
+  scale_colour_manual("FS", values = c("Elastic Net" = "#4DBBD5FF", "Full" = "#00A087FF", "GBM" = "#3C5488FF", "SVM" = "#F39B7FFF" )) +
+        theme(axis.text.x = element_text(angle=45)) +
+  theme_classic() + geom_hline(yintercept = 0.8878378, linetype = 2, colour = "red")
+
+ggplot(tme_models, aes(x=reorder(Model, -Accuracy), y=Accuracy)) +
+        stat_summary(mapping=aes(fill=FS), fun=mean, geom='bar', alpha=0.5, color='black') +
+        stat_summary(fun.data = mean_sdl,fun.args = list(mult = 1), geom='errorbar', color='black') +
+        geom_jitter(aes(color=FS), position=position_jitter(width=0.2), alpha=0.8) +
+      scale_fill_manual("FS", values = c("Elastic Net" = "#4DBBD5FF", "Full" = "#00A087FF", "GBM" = "#3C5488FF", "SVM" = "#F39B7FFF" )) + 
+  scale_colour_manual("FS", values = c("Elastic Net" = "#4DBBD5FF", "Full" = "#00A087FF", "GBM" = "#3C5488FF", "SVM" = "#F39B7FFF" )) +
+        theme(axis.text.x = element_text(angle=45)) +
+  theme_classic() + geom_hline(yintercept = 0.8878378, linetype = 2, colour = "red")
+```
+
+#CD plots
+```{r}
+#Downloaded from github repo
+library(scmamp)
+
+tcga_models_wide = dplyr::select(tcga_models, c("Accuracy", "Model"))
+tcga_models_wide$CV = rep(c(1:10),24)
+tcga_models_wide$Model = str_replace_all(tcga_models_wide$Model , c("Full Elastic Net"= "LASSO Full", 
+                                                                    "Elastic Net Elastic Net" = "LASSO ElasticNet", 
+                                                                    "NB Elastic Net"="LASSO NB", 
+                                                                    "RF Elastic Net" = "LASSO RF", 
+                                                                    "GBM Elastic Net" = "LASSO GBM", 
+                                                                    "KNN Elastic Net" = "LASSO KNN", 
+                                                                    "SVM Elastic Net" = "LASSO SVM", 
+                                                                    "NNET Elastic Net" = "LASSO NNET", 
+                                                                    "Elastic Net GBM" = "GBM ElasticNet", 
+                                                                    "NB GBM" = "GBM NB", 
+                                                                    "RF GBM"= "GBM RF",
+                                                                    "GBM GBM" = "GBM GBM", 
+                                                                    "KNN GBM" = "GBM KNN", 
+                                                                    "SVM GBM" = "GBMFS SVM", 
+                                                                    "NNET GBM" = "GBM NNET",
+                                                                    "Elastic Net SVM"= "SVM ElasticNet", 
+                                                                    "NB SVM"= "SVM NB",  
+                                                                    "RF SVM"= "SVM RF", 
+                                                                    "GBM SVM"= "SVM GBM", 
+                                                                    "KNN SVM"= "SVM KNN", 
+                                                                    "SVM SVM"= "SVM SVM", 
+                                                                    "NNET SVM"= "SVM NNET" ))
+tcga_models_wide$Model = str_replace_all(tcga_models_wide$Model , c("GBMFS SVM"= "GBM SVM"))
+tcga_models_wide = tidyr::spread(tcga_models_wide, Model, Accuracy)
+tcga_models_wide = tibble::column_to_rownames(tcga_models_wide, "CV")
+
+#ACRG
+acrg_models_wide = dplyr::select(acrg_models, c("Accuracy", "Model"))
+acrg_models_wide$CV = rep(c(1:10),24)
+acrg_models_wide$Model = str_replace_all(acrg_models_wide$Model , c("Full Elastic Net"= "LASSO Full", 
+                                                                    "Elastic Net Elastic Net" = "LASSO ElasticNet", 
+                                                                    "NB Elastic Net"="LASSO NB", 
+                                                                    "RF Elastic Net" = "LASSO RF", 
+                                                                    "GBM Elastic Net" = "LASSO GBM", 
+                                                                    "KNN Elastic Net" = "LASSO KNN", 
+                                                                    "SVM Elastic Net" = "LASSO SVM", 
+                                                                    "NNET Elastic Net" = "LASSO NNET", 
+                                                                    "Elastic Net GBM" = "GBM ElasticNet", 
+                                                                    "NB GBM" = "GBM NB", 
+                                                                    "RF GBM"= "GBM RF",
+                                                                    "GBM GBM" = "GBM GBM", 
+                                                                    "KNN GBM" = "GBM KNN", 
+                                                                    "SVM GBM" = "GBMFS SVM", 
+                                                                    "NNET GBM" = "GBM NNET",
+                                                                    "Elastic Net SVM"= "SVM ElasticNet", 
+                                                                    "NB SVM"= "SVM NB",  
+                                                                    "RF SVM"= "SVM RF", 
+                                                                    "GBM SVM"= "SVM GBM", 
+                                                                    "KNN SVM"= "SVM KNN", 
+                                                                    "SVM SVM"= "SVM SVM", 
+                                                                    "NNET SVM"= "SVM NNET" ))
+acrg_models_wide$Model = str_replace_all(acrg_models_wide$Model , c("GBMFS SVM"= "GBM SVM"))
+acrg_models_wide = tidyr::spread(acrg_models_wide, Model, Accuracy)
+acrg_models_wide = tibble::column_to_rownames(acrg_models_wide, "CV")
+
+
+#TME
+tme_models_wide = dplyr::select(tme_models, c("Accuracy", "Model"))
+tme_models_wide$CV = rep(c(1:10),24)
+tme_models_wide$Model = str_replace_all(tme_models_wide$Model , c("Full Elastic Net"= "LASSO Full", 
+                                                                    "Elastic Net Elastic Net" = "LASSO ElasticNet", 
+                                                                    "NB Elastic Net"="LASSO NB", 
+                                                                    "RF Elastic Net" = "LASSO RF", 
+                                                                    "GBM Elastic Net" = "LASSO GBM", 
+                                                                    "KNN Elastic Net" = "LASSO KNN", 
+                                                                    "SVM Elastic Net" = "LASSO SVM", 
+                                                                    "NNET Elastic Net" = "LASSO NNET", 
+                                                                    "Elastic Net GBM" = "GBM ElasticNet", 
+                                                                    "NB GBM" = "GBM NB", 
+                                                                    "RF GBM"= "GBM RF",
+                                                                    "GBM GBM" = "GBM GBM", 
+                                                                    "KNN GBM" = "GBM KNN", 
+                                                                    "SVM GBM" = "GBMFS SVM", 
+                                                                    "NNET GBM" = "GBM NNET",
+                                                                    "Elastic Net SVM"= "SVM ElasticNet", 
+                                                                    "NB SVM"= "SVM NB",  
+                                                                    "RF SVM"= "SVM RF", 
+                                                                    "GBM SVM"= "SVM GBM", 
+                                                                    "KNN SVM"= "SVM KNN", 
+                                                                    "SVM SVM"= "SVM SVM", 
+                                                                    "NNET SVM"= "SVM NNET" ))
+tme_models_wide$Model = str_replace_all(tme_models_wide$Model , c("GBMFS SVM"= "GBM SVM"))
+tme_models_wide = tidyr::spread(tme_models_wide, Model, Accuracy)
+tme_models_wide = tibble::column_to_rownames(tme_models_wide, "CV")
+```
+#scmamp customize plotCD
+```{r}
+getNemenyiCD <- function (alpha = 0.05, num.alg, num.problems) {
+  # Auxiliar function to compute the critical difference for Nemenyi test
+  # Args:
+  #   alpha:        Alpha for the test
+  #   num.alg:      Number of algorithms tested
+  #   num.problems: Number of problems where the algorithms have been tested
+  #
+  # Returns:
+  #   Corresponding critical difference
+  #
+  df <- num.alg * (num.problems - 1)
+  qa <- qtukey(p=1 - alpha, nmeans=num.alg, df=df)/sqrt(2)
+  cd <- qa * sqrt((num.alg * (num.alg + 1)) / (6 * num.problems))
+  return(cd)
+}
+
+####
+plotCD <- function (results.matrix, alpha=0.05, cex=0.75, ...) {
+  
+  opar <- par(mai = c(0,0,0,0))
+  on.exit(par(opar))
+  
+  k <- dim(results.matrix)[2]
+  N <- dim(results.matrix)[1]
+  cd <- getNemenyiCD(alpha=alpha, num.alg=k, num.problems=N)
+  
+  mean.rank <- sort(colMeans(rankMatrix(results.matrix, ...)))
+  
+  # Separate the algorithms in left and right parts
+  lp <- round(k/2)
+  left.algs <- mean.rank[1:lp]
+  right.algs <- mean.rank[(lp+1):k]  
+  max.rows <- ceiling(k/2)
+  
+  # Basic dimensions and definitions
+  char.size    <- 0.0001  # Character size
+  line.spacing <- 0.35   # Line spacing for the algorithm name
+  m            <- floor(min(mean.rank))
+  M            <- ceiling(max(mean.rank))
+  max.char     <- max(sapply(colnames(results.matrix), FUN = nchar))  # Longest length of a label
+  text.width   <- (max.char + 4) * char.size
+  w            <- (M-m) + 2 * text.width
+  h.up         <- 2.5 * line.spacing  # The upper part is fixed. Extra space is for the CD
+  h.down       <- (max.rows + 2.25) * line.spacing # The lower part depends on the no. of algorithms. 
+  # The 2 extra spaces are for the lines that join algorithms
+  tick.h       <- 0.25 * line.spacing
+  
+  label.displacement <- 0.15    # Displacement of the label with respect to the axis
+  line.displacement  <- 0.015  # Displacement for the lines that join algorithms
+  
+  # Background of the plot
+  plot(0, 0, type="n", xlim=c(-5,30), 
+       ylim=c(-h.down, h.up), xaxt="n", yaxt="n", xlab= "", ylab="", bty="n")
+  
+  # Draw the axis
+  lines (c(m,M), c(0,0))
+  dk <- sapply(m:M, 
+               FUN=function(x) {
+                 lines(c(x,x), c(0, tick.h))
+                 text(x, 3*tick.h, labels=x, cex=cex)
+               })
+  
+  # Draw the critical difference
+  lines(c(m, m + cd), c(1.75 * line.spacing, 1.75 * line.spacing))
+  text(m + cd / 2, 2.25 * line.spacing, "CD", cex=cex)
+  lines(c(m, m), c(1.75 * line.spacing - tick.h / 4, 
+                   1.75 * line.spacing + tick.h / 4))
+  lines(c(m + cd, m + cd), c(1.75 * line.spacing - tick.h / 4, 
+                             1.75 * line.spacing + tick.h / 4))
+  
+  # Left part, labels
+  dk <- sapply (1:length(left.algs), 
+                FUN=function(x) {
+                  line.h <- -line.spacing * (x + 2)
+                  text(x=m - label.displacement, y=line.h, 
+                       labels=names(left.algs)[x], cex=cex, adj=1)
+                  lines(c(m - label.displacement*0.75, left.algs[x]), c(line.h, line.h))
+                  lines(c(left.algs[x], left.algs[x]), c(line.h, 0))
+                })
+  
+  # Right part, labels
+  dk <- sapply (1:length(right.algs), 
+                FUN=function(x) {
+                  line.h <- -line.spacing * (x + 2)
+                  text(x=M + label.displacement, y=line.h, 
+                       labels=names(right.algs)[x], cex=cex, adj=0)
+                  lines(c(M + label.displacement*0.75, right.algs[x]), c(line.h, line.h))
+                  lines(c(right.algs[x], right.algs[x]), c(line.h, 0))
+                })
+  
+  # Draw the lines to join algorithms
+  getInterval <- function (x) {
+    from <- mean.rank[x]
+    diff <- mean.rank - from
+    ls <- which(diff > 0 & diff < cd)
+    if (length(ls) > 0) {
+      c(from, mean.rank[max(ls)])
+    }
+  }
+  
+  intervals <- mapply (1:k, FUN=getInterval)
+  aux <- do.call(rbind, intervals)
+  if(NROW(aux) > 0) {
+    # With this strategy, there can be intervals included into bigger ones
+    # We remove them in a sequential way
+    to.join <- aux[1,]
+    if(nrow(aux) > 1) {  
+      for (r in 2:nrow(aux)) {
+        if (aux[r - 1, 2] < aux[r, 2]) {
+          to.join <- rbind(to.join, aux[r, ])
+        }
+      }
+    }
+
+    row <- c(1)
+    # Determine each line in which row will be displayed
+    if (!is.matrix(to.join)) {  # To avoid treating vector separately
+      to.join <- t(as.matrix(to.join))
+    }
+    nlines <- dim(to.join)[1]
+
+    for(r in 1:nlines) {
+      id <- which(to.join[r, 1] > to.join[, 2])
+      if(length(id) == 0) {
+        row <- c(row, tail(row, 1) + 1)
+      } else {
+        row <- c(row, min(row[id]))
+      }
+    }
+    
+    step <- max(row) / 2
+
+    # Draw the line
+    dk <- sapply (1:nlines, 
+                  FUN = function(x) {
+                    y <- -line.spacing * (0.5 + row[x] / step)
+                    lines(c(to.join[x, 1] - line.displacement, 
+                            to.join[x, 2] + line.displacement), 
+                          c(y, y), lwd=3)
+                  })
+  }
+}
+```
+#Save CD plots
+```{r}
+#Plots
+svg(filename="CD_plot_tcga.svg", width=8, height=2.5)
+plotCD (tcga_models_wide, alpha=0.05, cex=0.9)
+dev.off()
+
+png(filename="CD_plot_tcga.png", width=8, height=2.5,units="in", res = 300)
+plotCD (tcga_models_wide, alpha=0.05, cex=0.9)
+dev.off()
+
+#Plots
+svg(filename="CD_plot_acrg.svg", width=8, height=2.5)
+plotCD (acrg_models_wide, alpha=0.05, cex=0.9)
+dev.off()
+
+png(filename="CD_plot_acrg.png", width=8, height=2.5,units="in", res = 300)
+plotCD (acrg_models_wide, alpha=0.05, cex=0.9)
+dev.off()
+
+#Plots
+svg(filename="CD_plot_tme.svg", width=8, height=2.5)
+plotCD (tme_models_wide, alpha=0.05, cex=0.9)
+dev.off()
+
+png(filename="CD_plot_tme.png", width=8, height=2.5,units="in", res = 300)
+plotCD (tme_models_wide, alpha=0.05, cex=0.9)
+dev.off()
+
+
+
+```
+
+
+
+
+
+
+##Plots for PAPER
+#TCGA Models
+```{r}
+#CI bootstrap confidence intervals with 1000 bootstraps
+
+tcga_plot = ggplot(tcga_models_long_nobrier, aes(x=factor(Model, level=level_order), y=value)) +
+  stat_summary(mapping=aes(fill=FS, alpha=ifelse(grepl("Net Elastic", Model), 0, 1),size=ifelse(grepl("Net Elastic", Model), "B", "A")), fun=mean, geom='bar', color='black') +
+  stat_summary(fun.data = mean_cl_boot, geom='errorbar', color='black', width=0.3) +
+  scale_fill_manual(name = "Feature Selection",values=c("#50af98","#B2DF8A", "#33A02C","#1F78B4")) +
+  scale_alpha(range=c(1,0.65)) +
+  scale_size_manual(values=c(0.1, 1), guide = "none") +
+  scale_x_discrete(labels=labels) +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.2)) +
+  ylab("Accuracy") +
+  ggtitle("TCGA Model Performance") +
+  theme_classic() +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_text(size=16)) +
+  theme(panel.grid.major.y = element_line(colour = "gray", size = 0.15)) +
+                theme(panel.grid.minor.y = element_line(colour = "gray", size = 0.1)) +
+  theme(axis.text.x = element_text(colour="black", size = 16,angle = 90, hjust=1, vjust=0.5)) +
+  theme(axis.text.y = element_text(colour="black",size = 16)) + 
+  theme(plot.title = element_text(colour="black", size=16,hjust = 0)) +
+  theme(axis.title.x = element_blank()) +
+  theme(axis.title.y = element_text(colour="black", size=16)) +
+  theme(legend.position = "bottom",
+        legend.text = element_text(size = 16, hjust=0.4),
+        legend.title = element_text(size = 16, hjust=0.4)) + 
+        guides(alpha=FALSE, linetype=FALSE,
+         fill=guide_legend(reverse=TRUE))
+
+ggsave("tcga_plot_new.svg", tcga_plot, width = 6.5, height = 4)
+ggsave("tcga_plot_legend.svg", tcga_plot, width = 6, height = 3.5)
+
+##TCGA BRIER
+tcga_plot_brier = ggplot(tcga_models_long_noacc, aes(x=factor(Model, level=level_order), y=value)) +
+  stat_summary(mapping=aes(fill=FS, alpha=ifelse(grepl("Net Elastic", Model), 0, 1),size=ifelse(grepl("Net Elastic", Model), "B", "A")), fun=mean, geom='bar', color='black') +
+  stat_summary(fun.data = mean_cl_boot, geom='errorbar', color='black') +
+  scale_fill_manual(name = "Feature Selection",values=c("#50af98","#B2DF8A", "#33A02C","#1F78B4")) +
+  scale_alpha(range=c(1,0.5)) +
+  scale_size_manual(values=c(0.1, 1), guide = "none") +
+  scale_x_discrete(labels=labels) +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.1)) +
+  ylab("Value") +
+  ggtitle("TCGA Models Brier Score") +
+ theme_classic() +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_text(size=14)) +
+  theme(panel.grid.major.y = element_line(colour = "gray", size = 0.15)) +
+                theme(panel.grid.minor.y = element_line(colour = "gray", size = 0.1)) +
+  theme(axis.text.x = element_text(colour="black", size = 12,angle = 90, hjust=1, vjust=0.5)) +
+  theme(axis.text.y = element_text(colour="black",size = 12)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0)) +
+  theme(axis.title.x = element_blank()) +
+  theme(axis.title.y = element_text(colour="black", size=14)) +
+  theme(legend.position = "bottom" ) + guides(alpha=FALSE, linetype=FALSE,
+         fill=guide_legend(reverse=TRUE))
+
+ggsave("tcga_plot_brier.svg", tcga_plot_brier, width = 4, height = 3.5)
+
+
+```
+#ACRG MODELS
+```{r}
+###ACRG accuracy 
+acrg_plot = ggplot(acrg_models_long_nobrier, aes(x=factor(Model, level=level_order), y=value)) +
+  stat_summary(mapping=aes(fill=FS, alpha=ifelse(grepl("GBM SVM", Model), 0, 1),size=ifelse(grepl("GBM SVM", Model), "B", "A")), fun=mean, geom='bar', color='black') +
+  stat_summary(fun.data = mean_cl_boot, geom='errorbar', color='black') +
+  scale_fill_manual(name = "Feature Selection",values=c("#50af98","#B2DF8A", "#33A02C","#1F78B4")) +
+  scale_alpha(range=c(1,0.5)) +
+  scale_size_manual(values=c(0.1, 1), guide = "none") +
+  scale_x_discrete(labels=labels) +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.1)) +
+  ylab("Value") +
+  ggtitle("ACRG Models Accuracy") +
+ theme_classic() +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_text(size=14)) +
+  theme(panel.grid.major.y = element_line(colour = "gray", size = 0.15)) +
+                theme(panel.grid.minor.y = element_line(colour = "gray", size = 0.1)) +
+  theme(axis.text.x = element_text(colour="black", size = 12,angle = 90, hjust=1, vjust=0.5)) +
+  theme(axis.text.y = element_text(colour="black",size = 12)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0)) +
+  theme(axis.title.x = element_blank()) +
+  theme(axis.title.y = element_text(colour="black", size=14)) +
+  theme(legend.position = "bottom" ) + guides(alpha=FALSE, linetype=FALSE,
+         fill=guide_legend(reverse=TRUE))
+
+ggsave("acrg_plot.svg", acrg_plot, width = 4, height = 3.5)
+
+
+acrg_plot_brier = ggplot(acrg_models_long_noacc, aes(x=factor(Model, level=level_order), y=value)) +
+  stat_summary(mapping=aes(fill=FS, alpha=ifelse(grepl("GBM SVM", Model), 0, 1),size=ifelse(grepl("GBM SVM", Model), "B", "A")), fun=mean, geom='bar', color='black') +
+  stat_summary(fun.data = mean_cl_boot, geom='errorbar', color='black') +
+  scale_fill_manual(name = "Feature Selection",values=c("#50af98","#B2DF8A", "#33A02C","#1F78B4")) +
+  scale_alpha(range=c(1,0.5)) +
+  scale_size_manual(values=c(0.1, 1), guide = "none") +
+  scale_x_discrete(labels=labels) +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.1)) +
+  ylab("Value") +
+  ggtitle("ACRG Models Brier Score") +
+ theme_classic() +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_text(size=14)) +
+  theme(panel.grid.major.y = element_line(colour = "gray", size = 0.15)) +
+                theme(panel.grid.minor.y = element_line(colour = "gray", size = 0.1)) +
+  theme(axis.text.x = element_text(colour="black", size = 12,angle = 90, hjust=1, vjust=0.5)) +
+  theme(axis.text.y = element_text(colour="black",size = 12)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0)) +
+  theme(axis.title.x = element_blank()) +
+  theme(axis.title.y = element_text(colour="black", size=14)) +
+  theme(legend.position = "bottom" ) + guides(alpha=FALSE, linetype=FALSE,
+         fill=guide_legend(reverse=TRUE))
+
+ggsave("acrg_plot_brier.svg", acrg_plot_brier, width = 4, height = 3.5)
+
+```
+
+#TME MODELS
+```{r}
+tme_plot = ggplot(tme_models_long_nobrier, aes(x=factor(Model, level=level_order), y=value)) +
+  stat_summary(mapping=aes(fill=FS, alpha=ifelse(grepl("RF GBM", Model), 0, 1),size=ifelse(grepl("RF GBM", Model), "B", "A")), fun=mean, geom='bar', color='black') +
+  stat_summary(fun.data = mean_cl_boot, geom='errorbar', color='black') +
+  scale_fill_manual(name = "Feature Selection",values=c("#50af98","#B2DF8A", "#33A02C","#1F78B4")) +
+  scale_alpha(range=c(1,0.5)) +
+  scale_size_manual(values=c(0.1, 1), guide = "none") +
+  scale_x_discrete(labels=labels) +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.1)) +
+  ylab("Value") +
+  ggtitle("TME Models Accuracy ") +
+ theme_classic() +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_text(size=14)) +
+  theme(panel.grid.major.y = element_line(colour = "gray", size = 0.15)) +
+                theme(panel.grid.minor.y = element_line(colour = "gray", size = 0.1)) +
+  theme(axis.text.x = element_text(colour="black", size = 12,angle = 90, hjust=1, vjust=0.5)) +
+  theme(axis.text.y = element_text(colour="black",size = 12)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0)) +
+  theme(axis.title.x = element_blank()) +
+  theme(axis.title.y = element_text(colour="black", size=14)) +
+  theme(legend.position = "bottom" ) + guides(alpha=FALSE, linetype=FALSE,
+         fill=guide_legend(reverse=TRUE))
+
+
+ggsave("tme_plot.svg", tme_plot, width = 4, height = 3.5)
+
+
+tme_plot_brier = ggplot(tme_models_long_noacc, aes(x=factor(Model, level=level_order), y=value)) +
+  stat_summary(mapping=aes(fill=FS, alpha=ifelse(grepl("RF GBM", Model), 0, 1),size=ifelse(grepl("RF GBM", Model), "B", "A")), fun=mean, geom='bar', color='black') +
+  stat_summary(fun.data = mean_cl_boot, geom='errorbar', color='black') +
+  scale_fill_manual(name = "Feature Selection",values=c("#50af98","#B2DF8A", "#33A02C","#1F78B4")) +
+  scale_alpha(range=c(1,0.5)) +
+  scale_size_manual(values=c(0.1, 1), guide = "none") +
+  scale_x_discrete(labels=labels) +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.1)) +
+  ylab("Value") +
+  ggtitle("TME Models Brier Score") +
+ theme_classic() +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_text(size=14)) +
+  theme(panel.grid.major.y = element_line(colour = "gray", size = 0.15)) +
+                theme(panel.grid.minor.y = element_line(colour = "gray", size = 0.1)) +
+  theme(axis.text.x = element_text(colour="black", size = 12,angle = 90, hjust=1, vjust=0.5)) +
+  theme(axis.text.y = element_text(colour="black",size = 12)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0)) +
+  theme(axis.title.x = element_blank()) +
+  theme(axis.title.y = element_text(colour="black", size=14)) +
+  theme(legend.position = "bottom" ) + guides(alpha=FALSE, linetype=FALSE,
+         fill=guide_legend(reverse=TRUE))
+
+
+ggsave("tme_plot_brier.svg", tme_plot_brier, width = 4, height = 3.5)
+```

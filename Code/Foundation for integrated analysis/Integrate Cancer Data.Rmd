@@ -1,0 +1,127 @@
+---
+title: "normal/cancer new"
+author: "Daniel Skubleny"
+date: "07/02/2022"
+output: ''
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(FSQN)
+```
+
+
+#Reduce dataset to common features for the cancers
+```{r}
+#Data sets - reduce to commongenes and transpose for FSQN
+
+#ACRG
+log_ACRG_cancer <- subset(log_ACRG, rownames(log_ACRG) %in% as.matrix(commongenes))
+log_ACRG_cancer = t(log_ACRG_cancer)
+
+#TCGA
+fullTCGA_cancer <- subset(log_edata_fullTCGA, rownames(log_edata_fullTCGA) %in% as.matrix(commongenes))
+fullTCGA_cancer = t(fullTCGA_cancer)
+
+#Singapore 
+cancer_sing <- subset(edata_sing, rownames(edata_sing) %in% as.matrix(commongenes))
+cancer_sing = t(cancer_sing)
+
+#Singapore batch B 
+cancer_batchb <- subset(edata_batchb, rownames(edata_batchb) %in% as.matrix(commongenes))
+cancer_batchb = t(cancer_batchb)
+
+#Samsung 
+cancer_SMC <- subset(edata_SMC, rownames(edata_SMC) %in% as.matrix(commongenes))
+cancer_SMC = t(cancer_SMC)
+
+#Shanghai
+cancer_shanghai <- subset(edata_shanghai, rownames(edata_shanghai) %in% as.matrix(commongenes))
+cancer_shanghai = t(cancer_shanghai)
+
+#Yonsei
+cancer_yonsei <- subset(edata_yonsei, rownames(edata_yonsei) %in% as.matrix(commongenes))
+cancer_yonsei = t(cancer_yonsei)
+
+#MDACC
+cancer_MDACC <- subset(edata_MDACC, rownames(edata_MDACC) %in% as.matrix(commongenes))
+cancer_MDACC = t(cancer_MDACC)
+
+#KUGH
+cancer_KUGH <- subset(edata_KUGH, rownames(edata_KUGH) %in% as.matrix(commongenes))
+cancer_KUGH = t(cancer_KUGH)
+
+#Kosin
+cancer_kosin <- subset(edata_kosin, rownames(edata_kosin) %in% as.matrix(commongenes))
+cancer_kosin = t(cancer_kosin)
+
+#Yonsei MDACC
+cancer_yonseiMDACC <- subset(edata_yonseiMDACC, rownames(edata_yonseiMDACC) %in% as.matrix(commongenes))
+cancer_yonseiMDACC = t(cancer_yonseiMDACC)
+```
+
+#FSQN the cancers
+```{r}
+#TCGA FSQN to ACRG as reference due to predominate data derived from affymetrix platform and that TME clusters were established ACRG.
+set.seed(99)
+target = as.matrix(log_ACRG_cancer)
+test = as.matrix(fullTCGA_cancer)
+fsqn_cancer_TCGA = quantileNormalizeByFeature(test, target)
+```
+
+```{r}
+#FSQN for remaining datasets
+set.seed(99)
+target = as.matrix(log_ACRG_cancer)
+test = as.matrix(cancer_sing)
+fsqn_cancer_sing = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_batchb)
+fsqn_cancer_batchb = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_SMC)
+fsqn_cancer_SMC = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_shanghai)
+fsqn_cancer_shanghai = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_yonsei)
+fsqn_cancer_yonsei = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_MDACC)
+fsqn_cancer_MDACC = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_KUGH)
+fsqn_cancer_KUGH = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_kosin)
+fsqn_cancer_kosin = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_yonseiMDACC)
+fsqn_cancer_yonseiMDACC = quantileNormalizeByFeature(test, target)
+```
+
+```{r}
+#Combine into full dataframe with all patients 
+cancer_edata = rbind(fsqn_cancer_TCGA, log_ACRG_cancer)
+cancer_edata = rbind(cancer_edata, fsqn_cancer_sing)
+cancer_edata = rbind(cancer_edata, fsqn_cancer_batchb)
+cancer_edata = rbind(cancer_edata, fsqn_cancer_SMC)
+cancer_edata = rbind(cancer_edata, fsqn_cancer_shanghai)
+cancer_edata = rbind(cancer_edata, fsqn_cancer_yonsei)
+cancer_edata = rbind(cancer_edata, fsqn_cancer_MDACC)
+cancer_edata = rbind(cancer_edata, fsqn_cancer_KUGH)
+cancer_edata = rbind(cancer_edata, fsqn_cancer_kosin)
+cancer_edata = rbind(cancer_edata, fsqn_cancer_yonseiMDACC)
+```
+
+```{r}
+#Add tissue type  to data frames for PCA to examine efficacy of FSQN
+cancer_edata = as.data.frame(cancer_edata)
+cancer_edata$type = 'Cancer'
+cancer_edata = cancer_edata[c(9285, 1:9284)]
+```
+

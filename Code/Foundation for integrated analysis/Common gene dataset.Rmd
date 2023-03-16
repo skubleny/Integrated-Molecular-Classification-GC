@@ -1,0 +1,87 @@
+---
+title: "Common gene dataset"
+author: "Daniel Skubleny"
+date: "19/02/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Common TCGA and ACRG genes
+ACRGgenes = row.names(log_ACRG)
+ACRGgenes = as.data.frame(ACRGgenes)
+TCGAgenes = row.names(log_edata)
+TCGAgenes = as.data.frame(TCGAgenes)
+```
+```{r}
+#Make first common genes list between ACRG and TCGA
+commongenes = intersect(ACRGgenes$ACRGgenes,TCGAgenes$TCGAgenes)
+commongenes = as.data.frame(commongenes)
+```
+```{r}
+#Common with SMC cohort added
+SMCgenes= row.names(edata_SMC)
+SMCgenes = as.data.frame(SMCgenes)
+commongenes = intersect(SMCgenes$SMCgenes, commongenes$commongenes)
+commongenes = as.data.frame(commongenes)
+```
+```{r}
+#Common with MDACC cohort added
+MDACCgenes = row.names(edata_MDACC)
+MDACCgenes = as.data.frame(MDACCgenes)
+commongenes = intersect(MDACCgenes$MDACCgenes, commongenes$commongenes)
+commongenes = as.data.frame(commongenes)
+```
+```{r}
+#KUGH genes added
+KUGHgenes = row.names(edata_KUGH)
+KUGHgenes = as.data.frame(KUGHgenes)
+commongenes = intersect(KUGHgenes$KUGHgenes, commongenes$commongenes)
+commongenes = as.data.frame(commongenes)
+```
+```{r}
+#Kosin genes added
+kosingenes = row.names(edata_kosin)
+kosingenes = as.data.frame(kosingenes)
+commongenes = intersect(kosingenes$kosingenes, commongenes$commongenes)
+commongenes = as.data.frame(commongenes)
+```
+```{r}
+#Singapore genes added
+singaporegenes = row.names(edata_sing)
+singaporegenes = as.data.frame(singaporegenes)
+commongenes = intersect(singaporegenes$singaporegenes, commongenes$commongenes)
+commongenes = as.data.frame(commongenes)
+```
+```{r}
+#Singapore batch b added
+batchbgenes = row.names(edata_batchb)
+batchbgenes = as.data.frame(batchbgenes)
+commongenes = intersect(batchbgenes$batchbgenes, commongenes$commongenes)
+commongenes = as.data.frame(commongenes)
+```
+```{r}
+#Yonsei MDACC added
+yonseiMDACCgenes = row.names(edata_yonseiMDACC)
+yonseiMDACCgenes = as.data.frame(yonseiMDACCgenes)
+commongenes = intersect(yonseiMDACCgenes$yonseiMDACCgenes, commongenes$commongenes)
+commongenes = as.data.frame(commongenes)
+```
+```{r}
+#Shanghai Cohort added
+shanghaigenes = row.names(edata_shanghai)
+shanghaigenes = as.data.frame(shanghaigenes)
+commongenes = intersect(shanghaigenes$shanghaigenes, commongenes$commongenes)
+commongenes = as.data.frame(commongenes)
+```
+```{r}
+#Yonsei Cohort added
+yonseigenes = row.names(edata_yonsei)
+yonseigenes = as.data.frame(yonseigenes)
+commongenes = intersect(yonseigenes$yonseigenes, commongenes$commongenes)
+commongenes = as.data.frame(commongenes)
+```
+

@@ -1,0 +1,445 @@
+---
+title: "Housekeeping genes"
+author: "Daniel Skubleny"
+date: "07/05/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Housekeeping Genes
+
+Capture the top 50 lowest variance genes and the compare their mean expression. Want to select low variance and highly expressed genes for housekeeping. 
+
+#Across all cancer samples FSQN to affy
+```{r}
+all_cancer  = apply(cancer_edata, 2, var)
+```
+```{r}
+all_cancer = sort(all_cancer, decreasing = FALSE, na.last = TRUE)
+all_cancer = na.omit(all_cancer)
+all_cancer = as.data.frame(all_cancer)
+all_cancer$all_cancer = as.numeric(all_cancer$all_cancer)
+
+all_cancer = all_cancer %>% top_n(-40) 
+
+candidate = row.names(all_cancer)
+
+#Low variance genes
+lowvar = cancer_edata[, candidate]
+means  = apply(lowvar, 2, mean)
+```
+```{r}
+boxplot(lowvar, las=2)
+```
+
+#Coefficient of Variation all cancers 
+
+```{r}
+all_cancer.cv  = sapply(cancer_edata, function(x) sd(x) / mean(x) * 100)
+```
+```{r}
+all_cancer.cv = sort(all_cancer.cv, decreasing = FALSE, na.last = TRUE)
+all_cancer.cv = na.omit(all_cancer.cv)
+all_cancer.cv = as.data.frame(all_cancer.cv)
+all_cancer.cv$all_cancer.cv = as.numeric(all_cancer.cv$all_cancer.cv)
+
+all_cancer.cv = all_cancer.cv %>% top_n(-100) 
+
+candidate.cv = row.names(all_cancer.cv)
+
+#Low variance genes
+lowvar.all_cancer.cv = cancer_edata[, candidate.cv]
+means.all_cancer.cv  = apply(lowvar.all_cancer.cv, 2, mean)
+```
+```{r}
+boxplot(lowvar.all_cancer.cv, las=2, ylim = c(6,18))
+```
+
+
+
+#CV all cancer and normal samples FSQN to affy
+```{r}
+all_patients  =sapply(combined_edata, function(x) sd(x) / mean(x) * 100)
+
+```
+```{r}
+all_patients = sort(all_patients, decreasing = FALSE, na.last = TRUE)
+all_patients = na.omit(all_patients)
+all_patients = as.data.frame(all_patients)
+all_patients$all_patients = as.numeric(all_patients$all_patients)
+
+all_patients = all_patients %>% top_n(-100) 
+
+candidate.all_patients = row.names(all_patients)
+
+#Low variance genes
+lowvar.all_patients = cancer_edata[, candidate.all_patients]
+means.all_patients  = apply(lowvar.all_patients, 2, mean)
+```
+```{r}
+boxplot(lowvar.all_patients, las=2, ylim = c(0,18))
+```
+
+
+#CV all normals
+
+```{r}
+all_normals  = sapply(normal_edata, function(x) sd(x) / mean(x) * 100)
+
+```
+```{r}
+all_normals = sort(all_normals, decreasing = FALSE, na.last = TRUE)
+all_normals = na.omit(all_normals)
+all_normals = as.data.frame(all_normals)
+all_normals$all_normals = as.numeric(all_normals$all_normals)
+
+all_normals = all_normals %>% top_n(-100) 
+
+candidate.all_normals = row.names(all_normals)
+
+#Low variance genes
+lowvar.all_normals = cancer_edata[, candidate.all_normals]
+means.all_normals  = apply(lowvar.all_normals, 2, mean)
+```
+```{r}
+boxplot(lowvar.all_normals, las=2, ylim = c(6,18))
+```
+
+
+
+#CV all TCGA cancer (check a differnt distribution)
+
+```{r}
+fullTCGA_cancer = as.data.frame(fullTCGA_cancer)
+tcga_cancer  = sapply(fullTCGA_cancer, function(x) sd(x) / mean(x) * 100)
+```
+```{r}
+tcga_cancer = sort(tcga_cancer, decreasing = FALSE, na.last = TRUE)
+tcga_cancer = na.omit(tcga_cancer)
+tcga_cancer = as.data.frame(tcga_cancer)
+tcga_cancer$tcga_cancer = as.numeric(tcga_cancer$tcga_cancer)
+
+tcga_cancer = tcga_cancer %>% top_n(-40) 
+
+candidate.tcga_cancer = row.names(tcga_cancer)
+
+#Low variance genes
+lowvar.tcga_cancer = fullTCGA_cancer[, candidate.tcga_cancer]
+means.tcga_cancer  = apply(lowvar.tcga_cancer, 2, mean)
+```
+```{r}
+boxplot(lowvar.tcga_cancer, las=2, ylim = c(6,18))
+```
+#CV all ACRG cancer (check if selected across all are just related to the FSQN target)
+
+```{r}
+log_ACRG_cancer = as.data.frame(log_ACRG_cancer)
+acrg_cancer  = sapply(log_ACRG_cancer, function(x) sd(x) / mean(x) * 100)
+
+
+```
+```{r}
+acrg_cancer = sort(acrg_cancer, decreasing = FALSE, na.last = TRUE)
+acrg_cancer = na.omit(acrg_cancer)
+acrg_cancer = as.data.frame(acrg_cancer)
+acrg_cancer$acrg_cancer = as.numeric(acrg_cancer$acrg_cancer)
+
+acrg_cancer = acrg_cancer %>% top_n(-40) 
+
+candidate.acrg_cancer = row.names(acrg_cancer)
+
+#Low variance genes
+lowvar.acrg_cancer = fullTCGA_cancer[, candidate.acrg_cancer]
+means.acrg_cancer  = apply(lowvar.acrg_cancer, 2, mean)
+```
+```{r}
+boxplot(lowvar.acrg_cancer, las=2)
+```
+
+
+
+
+####Make TCGA target FSQN for all patients 
+
+
+We will FSQN to affymterix ACRG due to it being the dominant normal class. 
+```{r}
+library(FSQN)
+```
+#FSQN normals
+```{r}
+#Transpose and FSQN the normals
+
+#KUGH
+data_normal_KUGH <- subset(normal_KUGH, rownames(normal_KUGH) %in% as.matrix(commongenes))
+data_normal_KUGH = t(data_normal_KUGH)
+
+#Yonsei
+data_normal_yonseiMDACC <- subset(normal_yonseiMDACC, rownames(normal_yonseiMDACC) %in% as.matrix(commongenes))
+data_normal_yonseiMDACC = t(data_normal_yonseiMDACC)
+
+#ACRG
+data_log_norm_ACRG <- subset(log_norm_ACRG, rownames(log_norm_ACRG) %in% as.matrix(commongenes))
+data_log_norm_ACRG = t(data_log_norm_ACRG)
+
+#TCGA
+data_log_edata_norm<- subset(log_edata_norm, rownames(log_edata_norm) %in% as.matrix(commongenes))
+data_log_edata_norm = t(data_log_edata_norm)
+```
+
+```{r}
+#ACRG FSQN to TCGA as reference due to predominate data derived from affymetrix platform and that TME clusters were established ACRG.
+set.seed(99)
+target = as.matrix(data_log_edata_norm)
+test = as.matrix(data_log_norm_ACRG)
+fsqn_norm_ACRG.tcga = quantileNormalizeByFeature(test, target)
+```
+
+```{r}
+#FSQN for remaining datasets
+set.seed(99)
+target = as.matrix(data_log_edata_norm)
+test = as.matrix(data_normal_KUGH)
+fsqn_normal_KUGH.tcga = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(data_log_edata_norm)
+fsqn_normal_yonseiMDACC.tcga = quantileNormalizeByFeature(test, target)
+```
+
+```{r}
+#Combine into full dataframe with all patients 
+normal_edata.tcga = rbind(fsqn_norm_ACRG.tcga, data_log_edata_norm)
+normal_edata.tcga = rbind(normal_edata.tcga, fsqn_normal_KUGH.tcga)
+normal_edata.tcga = rbind(normal_edata.tcga, fsqn_normal_yonseiMDACC.tcga)
+```
+
+
+```{r}
+#Add tissue type  to data frames for PCA to examine efficacy of FSQN
+normal_edata.tcga = as.data.frame(normal_edata.tcga)
+normal_edata.tcga$type = 'Normal'
+normal_edata.tcga = normal_edata.tcga[c(9285, 1:9284)]
+```
+
+
+#Reduce dataset to common features for the cancers
+```{r}
+#Data sets - reduce to commongenes and transpose for FSQN
+
+#ACRG
+log_ACRG_cancer <- subset(log_ACRG, rownames(log_ACRG) %in% as.matrix(commongenes))
+log_ACRG_cancer = t(log_ACRG_cancer)
+
+#TCGA
+fullTCGA_cancer <- subset(log_edata_fullTCGA, rownames(log_edata_fullTCGA) %in% as.matrix(commongenes))
+fullTCGA_cancer = t(fullTCGA_cancer)
+
+#Singapore 
+cancer_sing <- subset(edata_sing, rownames(edata_sing) %in% as.matrix(commongenes))
+cancer_sing = t(cancer_sing)
+
+#Singapore batch B 
+cancer_batchb <- subset(edata_batchb, rownames(edata_batchb) %in% as.matrix(commongenes))
+cancer_batchb = t(cancer_batchb)
+
+#Samsung 
+cancer_SMC <- subset(edata_SMC, rownames(edata_SMC) %in% as.matrix(commongenes))
+cancer_SMC = t(cancer_SMC)
+
+#Shanghai
+cancer_shanghai <- subset(edata_shanghai, rownames(edata_shanghai) %in% as.matrix(commongenes))
+cancer_shanghai = t(cancer_shanghai)
+
+#Yonsei
+cancer_yonsei <- subset(edata_yonsei, rownames(edata_yonsei) %in% as.matrix(commongenes))
+cancer_yonsei = t(cancer_yonsei)
+
+#MDACC
+cancer_MDACC <- subset(edata_MDACC, rownames(edata_MDACC) %in% as.matrix(commongenes))
+cancer_MDACC = t(cancer_MDACC)
+
+#KUGH
+cancer_KUGH <- subset(edata_KUGH, rownames(edata_KUGH) %in% as.matrix(commongenes))
+cancer_KUGH = t(cancer_KUGH)
+
+#Kosin
+cancer_kosin <- subset(edata_kosin, rownames(edata_kosin) %in% as.matrix(commongenes))
+cancer_kosin = t(cancer_kosin)
+
+#Yonsei MDACC
+cancer_yonseiMDACC <- subset(edata_yonseiMDACC, rownames(edata_yonseiMDACC) %in% as.matrix(commongenes))
+cancer_yonseiMDACC = t(cancer_yonseiMDACC)
+```
+
+#FSQN the cancers
+```{r}
+#TCGA FSQN to ACRG as reference due to predominate data derived from affymetrix platform and that TME clusters were established ACRG.
+set.seed(99)
+target = as.matrix(fullTCGA_cancer)
+test = as.matrix(log_ACRG_cancer)
+fsqn_cancer_ACRG.tcga = quantileNormalizeByFeature(test, target)
+```
+
+```{r}
+#FSQN for remaining datasets
+set.seed(99)
+target = as.matrix(fullTCGA_cancer)
+test = as.matrix(cancer_sing)
+fsqn_cancer_sing.tcga = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_batchb)
+fsqn_cancer_batchb.tcga = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_SMC)
+fsqn_cancer_SMC.tcga = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_shanghai)
+fsqn_cancer_shanghai.tcga = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_yonsei)
+fsqn_cancer_yonsei.tcga = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_MDACC)
+fsqn_cancer_MDACC.tcga = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_KUGH)
+fsqn_cancer_KUGH.tcga = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_kosin)
+fsqn_cancer_kosin.tcga = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_yonseiMDACC)
+fsqn_cancer_yonseiMDACC.tcga = quantileNormalizeByFeature(test, target)
+```
+
+```{r}
+#Combine into full dataframe with all patients 
+cancer_edata.tcga = rbind(fsqn_cancer_ACRG.tcga, fullTCGA_cancer)
+cancer_edata.tcga = rbind(cancer_edata.tcga, fsqn_cancer_sing.tcga)
+cancer_edata.tcga = rbind(cancer_edata.tcga, fsqn_cancer_batchb.tcga)
+cancer_edata.tcga = rbind(cancer_edata.tcga, fsqn_cancer_SMC.tcga)
+cancer_edata.tcga = rbind(cancer_edata.tcga, fsqn_cancer_shanghai.tcga)
+cancer_edata.tcga = rbind(cancer_edata.tcga, fsqn_cancer_yonsei.tcga)
+cancer_edata.tcga = rbind(cancer_edata.tcga, fsqn_cancer_MDACC.tcga)
+cancer_edata.tcga = rbind(cancer_edata.tcga, fsqn_cancer_KUGH.tcga)
+cancer_edata.tcga = rbind(cancer_edata.tcga, fsqn_cancer_kosin.tcga)
+cancer_edata.tcga = rbind(cancer_edata.tcga, fsqn_cancer_yonseiMDACC.tcga)
+```
+
+```{r}
+#Add tissue type  to data frames for PCA to examine efficacy of FSQN
+cancer_edata.tcga = as.data.frame(cancer_edata.tcga)
+cancer_edata.tcga$type = 'Cancer'
+cancer_edata.tcga = cancer_edata.tcga[c(9285, 1:9284)]
+```
+#Make complete dataset
+```{r}
+combined_edata.tcga = rbind(cancer_edata.tcga,normal_edata.tcga)
+```
+
+
+
+
+#Coefficient of Variation all cancers (TCGA as reference distribution)
+
+```{r}
+all_cancer.cv.tcga  = sapply(cancer_edata.tcga, function(x) sd(x) / mean(x) * 100)
+```
+```{r}
+all_cancer.cv.tcga = sort(all_cancer.cv.tcga, decreasing = FALSE, na.last = TRUE)
+all_cancer.cv.tcga = na.omit(all_cancer.cv.tcga)
+all_cancer.cv.tcga = as.data.frame(all_cancer.cv.tcga)
+all_cancer.cv.tcga$all_cancer.cv.tcga = as.numeric(all_cancer.cv.tcga$all_cancer.cv.tcga)
+
+all_cancer.cv.tcga = all_cancer.cv.tcga %>% top_n(-100) 
+
+candidate.cv.tcga = row.names(all_cancer.cv.tcga)
+
+#Low variance genes
+lowvar.all_cancer.cv.tcga = cancer_edata.tcga[, candidate.cv.tcga]
+means.all_cancer.cv.tcga  = apply(lowvar.all_cancer.cv.tcga, 2, mean)
+```
+```{r}
+boxplot(lowvar.all_cancer.cv.tcga, las=2, ylim = c(6,18))
+```
+
+
+
+#CV all cancer and normal samples FSQN to RNAseq
+```{r}
+all_patients.tcga  =sapply(combined_edata.tcga, function(x) sd(x) / mean(x) * 100)
+
+```
+```{r}
+all_patients.tcga = sort(all_patients.tcga, decreasing = FALSE, na.last = TRUE)
+all_patients.tcga = na.omit(all_patients.tcga)
+all_patients.tcga = as.data.frame(all_patients.tcga)
+all_patients.tcga$all_patients.tcga = as.numeric(all_patients.tcga$all_patients.tcga)
+
+all_patients.tcga = all_patients.tcga %>% top_n(-100) 
+
+candidate.all_patients.tcga = row.names(all_patients.tcga)
+
+#Low variance genes
+lowvar.all_patients.tcga = combined_edata.tcga[, candidate.all_patients.tcga]
+means.all_patients.tcga  = apply(lowvar.all_patients.tcga, 2, mean)
+```
+```{r}
+boxplot(lowvar.all_patients.tcga, las=2, ylim = c(0,18))
+```
+
+
+#CV all normals
+
+```{r}
+all_normals.tcga  = sapply(normal_edata.tcga, function(x) sd(x) / mean(x) * 100)
+
+```
+```{r}
+all_normals.tcga = sort(all_normals.tcga, decreasing = FALSE, na.last = TRUE)
+all_normals.tcga = na.omit(all_normals.tcga)
+all_normals.tcga = as.data.frame(all_normals.tcga)
+all_normals.tcga$all_normals.tcga = as.numeric(all_normals.tcga$all_normals.tcga)
+
+all_normals.tcga = all_normals.tcga %>% top_n(-100) 
+
+candidate.all_normals.tcga = row.names(all_normals.tcga)
+
+#Low variance genes
+lowvar.all_normals.tcga = normal_edata.tcga[, candidate.all_normals.tcga]
+means.all_normals.tcga  = apply(lowvar.all_normals.tcga, 2, mean)
+```
+```{r}
+boxplot(lowvar.all_normals.tcga, las=2, ylim = c(6,18))
+```
+
+
+
+
+#Intersecting genes
+```{r}
+intersect_acrgdist = intersect(intersect(row.names(all_cancer.cv), row.names(all_patients)),(row.names(all_normals)))
+```
+
+```{r}
+
+intersect_tcgadist= intersect(intersect(row.names(all_cancer.cv.tcga), row.names(all_patients.tcga)),(row.names(all_normals.tcga)))
+```
+
+Pick genes - one high, medium and low expressing for each set. Plus a traditional HKG Beta Actin
+
+#TCGA
+HNRNPK
+XRCC5
+CTCF
+
+#ACRG
+RPL5
+SUMO3
+EIF4G2
+
+#trad
+ACTB

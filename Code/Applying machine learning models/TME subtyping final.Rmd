@@ -1,0 +1,202 @@
+---
+title: "TME subtyping"
+author: "Daniel Skubleny"
+date: "17/06/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#Try normalization with housekeeping genes
+```{r}
+library(FSQN)
+library(survival)
+library(survminer)
+```
+
+```{r}
+housekeeping_genes = c("ACTB", "CTCF", "EIF4G", "HNRNPK", "RPL9", "SUMO3", "XRCC5")
+normalizergenes = c(rntop50,housekeeping_genes)
+```
+
+```{r}
+#Data sets - reduce to commongenes and transpose for FSQN
+
+#ACRG
+log_ACRG_cancer <- subset(log_ACRG, rownames(log_ACRG) %in% as.matrix(normalizergenes))
+log_ACRG_cancer = t(log_ACRG_cancer)
+
+#TCGA
+fullTCGA_cancer <- subset(log_edata_fullTCGA, rownames(log_edata_fullTCGA) %in% as.matrix(normalizergenes))
+fullTCGA_cancer = t(fullTCGA_cancer)
+
+#Singapore 
+cancer_sing <- subset(edata_sing, rownames(edata_sing) %in% as.matrix(normalizergenes))
+cancer_sing = t(cancer_sing)
+
+#Singapore batch B 
+cancer_batchb <- subset(edata_batchb, rownames(edata_batchb) %in% as.matrix(normalizergenes))
+cancer_batchb = t(cancer_batchb)
+
+#Samsung 
+cancer_SMC <- subset(edata_SMC, rownames(edata_SMC) %in% as.matrix(normalizergenes))
+cancer_SMC = t(cancer_SMC)
+
+#Shanghai
+cancer_shanghai <- subset(edata_shanghai, rownames(edata_shanghai) %in% as.matrix(normalizergenes))
+cancer_shanghai = t(cancer_shanghai)
+
+#Yonsei
+cancer_yonsei <- subset(edata_yonsei, rownames(edata_yonsei) %in% as.matrix(normalizergenes))
+cancer_yonsei = t(cancer_yonsei)
+
+#MDACC
+cancer_MDACC <- subset(edata_MDACC, rownames(edata_MDACC) %in% as.matrix(normalizergenes))
+cancer_MDACC = t(cancer_MDACC)
+
+#KUGH
+cancer_KUGH <- subset(edata_KUGH, rownames(edata_KUGH) %in% as.matrix(normalizergenes))
+cancer_KUGH = t(cancer_KUGH)
+
+#Kosin
+cancer_kosin <- subset(edata_kosin, rownames(edata_kosin) %in% as.matrix(normalizergenes))
+cancer_kosin = t(cancer_kosin)
+
+#Yonsei MDACC
+cancer_yonseiMDACC <- subset(edata_yonseiMDACC, rownames(edata_yonseiMDACC) %in% as.matrix(normalizergenes))
+cancer_yonseiMDACC = t(cancer_yonseiMDACC)
+```
+
+
+```{r}
+#Fix the patient_id string
+
+fullTCGA_cancer = tibble::rownames_to_column(as.data.frame(fullTCGA_cancer), "patient_id")
+
+patient_id = substr(fullTCGA_cancer$patient_id,1,nchar(fullTCGA_cancer$patient_id)-3)
+patient_id = gsub("\\.", "-", patient_id)
+fullTCGA_cancer$patient_id = patient_id
+fullTCGA_cancer = tibble::column_to_rownames(fullTCGA_cancer,"patient_id")
+fullTCGA_cancer = as.matrix(fullTCGA_cancer)
+```
+
+
+#FSQN the cancers
+```{r}
+#TCGA FSQN to ACRG as reference due to predominate data derived from affymetrix platform and that TME clusters were established ACRG.
+set.seed(99)   
+target = as.matrix(log_ACRG_cancer)
+test = as.matrix(fullTCGA_cancer)
+fsqn_cancer_TCGA = quantileNormalizeByFeature(test, target)
+```
+
+```{r}
+#FSQN for remaining datasets
+set.seed(99)
+target = as.matrix(log_ACRG_cancer)
+test = as.matrix(cancer_sing)
+fsqn_cancer_sing = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_batchb)
+fsqn_cancer_batchb = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_SMC)
+fsqn_cancer_SMC = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_shanghai)
+fsqn_cancer_shanghai = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_yonsei)
+fsqn_cancer_yonsei = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_MDACC)
+fsqn_cancer_MDACC = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_KUGH)
+fsqn_cancer_KUGH = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_kosin)
+fsqn_cancer_kosin = quantileNormalizeByFeature(test, target)
+
+test = as.matrix(cancer_yonseiMDACC)
+fsqn_cancer_yonseiMDACC = quantileNormalizeByFeature(test, target)
+```
+
+
+```{r}
+#Combine into full dataframe with all patients 
+classify_TME = rbind(log_ACRG_cancer, fsqn_cancer_TCGA)
+classify_TME = rbind(classify_TME, fsqn_cancer_sing)
+classify_TME = rbind(classify_TME, fsqn_cancer_batchb)
+classify_TME = rbind(classify_TME, fsqn_cancer_SMC)
+classify_TME = rbind(classify_TME, fsqn_cancer_shanghai)
+classify_TME = rbind(classify_TME, fsqn_cancer_yonsei)
+classify_TME = rbind(classify_TME, fsqn_cancer_MDACC)
+classify_TME = rbind(classify_TME, fsqn_cancer_KUGH)
+classify_TME = rbind(classify_TME, fsqn_cancer_kosin)
+classify_TME = rbind(classify_TME, fsqn_cancer_yonseiMDACC)
+```
+```{r}
+classify_TME <- classify_TME[, rntop50]
+```
+#Classify the cancers according to TME 
+```{r}
+predict.classify_TME = predict(tme.final,classify_TME)
+predict.classify_TME_prob = predict(tme.final,classify_TME, type = "prob")
+
+table(predict.classify_TME)
+```
+#Extract calibrated probabilities 
+```{r}
+predict.classify_TME_cal = predict(tme.final_calibration,predict.classify_TME_prob)
+predict.classify_TME_prob_cal = predict(tme.final_calibration,predict.classify_TME_prob, type = "prob")
+colnames(predict.classify_TME_prob_cal) = c("High_cal", "Low_cal")
+
+TME_cal = as.data.frame(row.names(classify_TME))
+TME_cal$TME_subtype_cal = predict.classify_TME_cal
+colnames(TME_cal)[which(names(TME_cal) == "row.names(classify_TME)")] <- "patient_id"
+
+TME_prob_cal = as.data.frame(row.names(classify_TME))
+TME_prob_cal$High_cal = predict.classify_TME_prob_cal$High_cal
+TME_prob_cal$Low_cal = predict.classify_TME_prob_cal$Low_cal
+colnames(TME_prob_cal)[which(names(TME_prob_cal) == "row.names(classify_TME)")] <- "patient_id"
+```
+```{r}
+#Change the subtype data to match the strings in the survival data
+TME_subtype = as.data.frame(row.names(classify_TME))
+TME_subtype$TME_subtype = predict.classify_TME
+colnames(TME_subtype)[which(names(TME_subtype) == "row.names(classify_TME)")] <- "patient_id"
+```
+
+#Compile survival data annotated with TCGA subtype 
+```{r}
+TME_complete = merge(TME_subtype,survival_TCGA, by.x="patient_id",all=TRUE)
+TME_complete$OS_time = as.numeric(TME_complete$OS_time)
+TME_complete$OS_status = as.numeric(TME_complete$OS_status)
+TME_complete$age = as.numeric(TME_complete$age)
+
+TME_complete$TME_subtype = as.factor(TME_complete$TME_subtype)
+```
+#Create dataframe with subtpyes as probability. 
+```{r}
+classify_TME_prob = tibble::rownames_to_column(predict.classify_TME_prob, "patient_id")
+TME_probability = merge(TME_subtype,survival_TCGA, by.x="patient_id")
+TME_probability = merge(TME_probability,classify_TME_prob, by.x="patient_id")
+TME_probability = merge(TME_probability,TME_cal, by.x="patient_id")
+TME_probability = merge(TME_probability,TME_prob_cal, by.x="patient_id")
+
+
+TME_probability$OS_time = as.numeric(TME_probability$OS_time)
+TME_probability$OS_status = as.numeric(TME_probability$OS_status)
+TME_probability$age = as.numeric(TME_probability$age)
+TME_probability$TME_subtype = as.factor(TME_probability$TME_subtype)
+```
+```{r}
+library(xlsx)
+write.xlsx(TME_probability,file = "TME_probability.xlsx", sheetName = "TME_probability")
+```
+
+
