@@ -1,0 +1,39 @@
+---
+title: "chapter5"
+author: "Daniel Skubleny"
+date: "07/02/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#Libraries
+```{r}
+#Install and load DSS package
+library(DSS)
+library(readxl)
+library(reshape2)
+library(pheatmap)
+library(stringr)
+library(ggplot2)
+library(ggpubr)
+```
+#*********DSS FINAL
+```{r}
+##################################################################################################################################
+####THIS USES THE MAX RESPONSE  SO THAT THE VALUES IN THE ISOBOLOGRAM WILL BE CONSISTENT. 
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/dose_response.csv'
+DSS <-read.csv(urlfile)
+
+DSS = DSS[-10,] #Remove 67
+#Imported with nm concentration
+DSS$Slope = DSS$Slope*-1 
+DSS = dplyr::select(DSS, -"max_raw")
+
+DSS_3 = DSS(as.matrix(DSS[,2:ncol(DSS)]), 2.22e-22, 3, 1e-9)
+DSS$DSS_3 = DSS_3$DSS
+
+write.csv(DSS, "DSS_final.csv")
+```
+
