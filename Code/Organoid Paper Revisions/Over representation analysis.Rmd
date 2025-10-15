@@ -1,0 +1,130 @@
+---
+title: "Heatmaps for gene expression data"
+output: html_document
+date: "2025-10-01"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Load the data
+```{r}
+
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/combo_nanostring_no67.csv'
+combo_nanostring <-read.csv(urlfile,row.names = 1)
+
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/rntop50.csv'
+rntop50 <-read.csv(urlfile,row.names = 1)
+
+
+```
+
+#Add in the EBV and MSI data
+
+
+
+
+#ORA for TME genes
+```{r}
+library(clusterProfiler)
+library(msigdbr)
+library(AnnotationDbi)
+library(ggupset)
+library(ggnewscale)
+library(DOSE)
+library(ggridges)
+library(enrichplot)
+```
+
+#Enricher for top multivariable factors 
+```{r}
+geneList <- rntop50$x
+
+
+library(org.Hs.eg.db)
+annotated_genes = AnnotationDbi::select(org.Hs.eg.db,keys = geneList, columns = c("SYMBOL","ENTREZID"), keytype = "SYMBOL")
+
+
+```
+```{r}
+#Immunologic and Regulatory gene signatures
+m_t2g <- msigdbr(species = "Homo sapiens", category = "H") %>% dplyr::select(gs_name, gene_symbol)
+#m_t2g_2 <- msigdbr(species = "Homo sapiens", category = "C7") %>% dplyr::select(gs_name, gene_symbol)
+
+
+
+#m_t2g = rbind(m_t2g, m_t2g_2)
+enrich_clust1 = enricher(geneList, 
+                         pvalueCutoff  = 0.05,
+                         pAdjustMethod = "BH",
+                         TERM2GENE = m_t2g)
+enrich_clust1
+clusterProfiler::dotplot(enrich_clust1, showCategory=5) + ggtitle("Gene Cluster 1")
+barplot(enrich_clust1, showCategory=5) 
+heatplot(enrich_clust1, showCategory=5)
+upsetplot(enrich_clust1)
+
+edox2 <- pairwise_termsim(enrich_clust1)
+emapplot(edox2)
+
+y <- enrichDGN(annotated_genes$ENTREZID,
+           minGSSize     = 1,
+           pvalueCutoff  = 1,
+           pAdjustMethod = "BH")
+head(y, 3)
+barplot(y)
+
+
+ego <- enrichGO(gene          = annotated_genes$ENTREZID,
+                universe      = names(annotated_genes$ENTREZID),
+                OrgDb         = org.Hs.eg.db,
+                ont           = "MF",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.05,
+                qvalueCutoff  = 0.05,
+        readable      = TRUE)
+barplot(ego)
+heatplot(ego)
+
+ego2 <- enrichGO(gene          = annotated_genes$ENTREZID,
+                universe      = names(annotated_genes$ENTREZID),
+                OrgDb         = org.Hs.eg.db,
+                ont           = "MF",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.05,
+                qvalueCutoff  = 0.05,
+        readable      = TRUE)
+barplot(ego2)
+
+merged= merge_result(list(hallmark = enrich_clust1, MF= ego2, CC=ego)) 
+dotplot(merged)
+cnetplot(merged)
+
+merge_result(list(david=enrich_clust1, clusterProfiler=ego)) %>%
+    barplot(., showCategory=10)
+
+kk <- enrichKEGG(gene         = annotated_genes$ENTREZID,
+                 organism     = 'hsa',
+                 pvalueCutoff = 0.05)
+head(kk)
+
+
+
+#Remove mouse gene signatures 
+enrich_gs = enrich_clust1
+enrich_gs@result = enrich_gs@result[c(1,2,4),] #Remove mouse primary species
+  
+
+heatplot = heatplot(enrich_gs, showCategory=5)
+heatplot = heatplot + theme(panel.border = element_rect(fill = NA,colour="black",size = 1, linetype = 1, linewidth = 1)) +
+  ggtitle("Over Representation Analysis") +
+  theme(axis.text.x = element_text(colour="black", size = 13, face="italic")) +
+                theme(axis.text.y = element_text(colour="black",size = 13)) + 
+                theme(plot.title = element_text(colour="black", size=15)) 
+heatplot
+
+
+ggsave("heatplot.svg", heatplot, width = 6, height=4.5)
+
+```

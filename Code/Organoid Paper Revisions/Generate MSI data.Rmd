@@ -1,0 +1,136 @@
+---
+title: "Generate MSI data"
+output: html_document
+date: "2025-10-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+#pheno_ACRG_MLH
+```{r}
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/pheno_data_ACRG.csv'
+pheno_ACRG_MSI<-read.csv(urlfile)
+
+
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/pdata_acrg.csv'
+pdata_acrg<-read.csv(urlfile)
+pdata_acrg = pdata_acrg[,-1]
+
+```
+```{r}
+#Note: pdata_acrg available on gituhb 
+pheno_ACRG_MSI = merge(pdata_acrg,pheno_ACRG_MSI, by.x="Tumor.ID", all=TRUE)
+colnames(pheno_ACRG_MSI)[which(names(pheno_ACRG_MSI) == "MLH1.IHC")] <- "MLH1_ihc"
+pheno_ACRG_MSI = dplyr::select(pheno_ACRG_MSI, c("patient_id","MLH1_ihc"))
+
+pheno_ACRG_MSI$MLH1_ihc <- str_replace_all(pheno_ACRG_MSI$MLH1_ihc, c("negative" = "Negative", "positive" = "Positive","partial loss" = "Other"))
+
+pheno_ACRG_MSI$MLH1_ihc <- ifelse(grepl("Negative", pheno_ACRG_MSI$MLH1_ihc , ignore.case = T), "Negative",
+                                  ifelse(grepl("Positive", pheno_ACRG_MSI$MLH1_ihc , ignore.case = T), "Positive",
+                                  ifelse(grepl("Other", pheno_ACRG_MSI$MLH1_ihc , ignore.case = T), "Other", "Positive")))
+
+
+```
+
+#CNV and mutations from ACRG
+```{r}
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/mutations_ACRG.csv'
+mutations_ACRG<-read.csv(urlfile)
+
+```
+```{r}
+colnames(mutations_ACRG)[which(names(mutations_ACRG) == "sample")] <- "Tumor.ID"
+colnames(mutations_ACRG)[which(names(mutations_ACRG) == "MSI.h.assay.status...16..")] <- "MSI_analysis"
+colnames(mutations_ACRG)[which(names(mutations_ACRG) == "EBV...6..")] <- "ebv_status"
+colnames(mutations_ACRG)[which(names(mutations_ACRG) == "X..mutations")] <- "mutation_burden"
+
+mutations_ACRG = merge(pdata_acrg,mutations_ACRG, by.x="Tumor.ID", all=TRUE)
+
+mutations_ACRG = dplyr::select(mutations_ACRG, c("patient_id","MSI_analysis","ebv_status","mutation_burden"))
+
+mutations_ACRG = merge(mutations_ACRG,complete_subtype,by="patient_id", all=TRUE )
+
+mutations_ACRG$MSI_analysis = as.factor(mutations_ACRG$MSI_analysis)
+mutations_ACRG$ACRG_subtype = as.factor(mutations_ACRG$ACRG_subtype)
+mutations_ACRG$ebv_status = as.factor(mutations_ACRG$ebv_status)
+mutations_ACRG$mutation_burden = as.numeric(mutations_ACRG$mutation_burden)
+
+
+
+```
+
+#TCGA Mantis Score
+```{r}
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/complete_subtype_final.csv'
+complete_subtype <-read.csv(urlfile,row.names = 1)
+
+#MSI analysis from initial TCGA study
+urlfile<-'https://raw.githubusercontent.com/skubleny/Integrated-Molecular-Classification-GC/main/Data/data_clinical_sample_mantis.txt'
+tcga_msi_status<-read.delim(urlfile, comment.char="#")
+
+
+```
+```{r}
+colnames(tcga_msi_status)[which(names(tcga_msi_status) == "PATIENT_ID")] <- "patient_id"
+tcga_msi_status = dplyr::select(tcga_msi_status, c("patient_id","MLH1_SILENCING", "MSI_STATUS"))
+
+
+```
+#MSI_check
+```{r}
+MSI_check = complete_subtype
+MSI_check = merge(pheno_ACRG_MSI,complete_subtype,by="patient_id", all=TRUE )
+#MSI_check = merge(tcga_MSI,MSI_check,by="patient_id", all=TRUE )
+MSI_check = merge(tcga_msi_status,MSI_check,by="patient_id", all=TRUE )
+msi_acrg = dplyr::select(mutations_ACRG, c("patient_id", "MSI_analysis" ))
+msi_acrg$MSI_analysis = str_replace_all(msi_acrg$MSI_analysis, c("0" = "MSI-L/MSS", "1" = "MSI-H"))
+MSI_check = merge(msi_acrg,MSI_check,by="patient_id", all=TRUE )
+
+
+table(duplicated(MSI_check$patient_id))
+table(is.na(MSI_check$patient_id))
+MSI_check$MLH1_ihc = as.factor(MSI_check$MLH1_ihc)
+MSI_check$ACRG_subtype = as.factor(MSI_check$ACRG_subtype)
+MSI_check$MLH1_SILENCING = as.factor(MSI_check$MLH1_SILENCING)
+MSI_check$MSI_STATUS = as.factor(MSI_check$MSI_STATUS)
+
+
+
+MSI_check$MSI_STATUS_high = ifelse(grepl("MSI-H", MSI_check$MSI_STATUS, ignore.case = T), "MSI-H", 
+                            ifelse(grepl("MSI-L", MSI_check$MSI_STATUS, ignore.case = T), "MSI-L/MSS",
+                            ifelse(grepl("MSS", MSI_check$MSI_STATUS, ignore.case = T), "MSI-L/MSS", "NA")))       
+MSI_check$MSI_STATUS_high = na_if(MSI_check$MSI_STATUS_high, "NA")
+MSI_check$MSI_STATUS_high = factor(MSI_check$MSI_STATUS_high)                                   
+MSI_check$MSI_STATUS_high = as.factor(MSI_check$MSI_STATUS_high)
+MSI_check = MSI_check[!is.na(MSI_check$TCGA_subtype),] 
+
+
+x = MSI_check$MSI_analysis
+y = MSI_check$MSI_STATUS_high
+MSI_pcr = coalesce(x,y)
+MSI_pcr = as.data.frame(MSI_pcr)
+MSI_pcr$patient_id = MSI_check$patient_id
+MSI_check = merge(MSI_pcr,MSI_check,by="patient_id", all=TRUE )
+
+
+
+MSI_check$MLH1_ihc = na_if(MSI_check$MLH1_ihc, "Other")
+MSI_check$MLH1_ihc = factor(MSI_check$MLH1_ihc)
+
+```
+
+
+#MSI PCR
+```{r}
+#LR model for predicting MSI pcr from probabilities
+MSI_check_pcr = MSI_check
+MSI_check_pcr = MSI_check_pcr[!is.na(MSI_check_pcr$MSI_pcr),] 
+MSI_check_pcr$MSI_pcr = factor(MSI_check_pcr$MSI_pcr, levels = c("MSI-L/MSS", "MSI-H"))
+
+
+```
+
