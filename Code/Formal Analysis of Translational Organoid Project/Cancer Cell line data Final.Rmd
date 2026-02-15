@@ -1,0 +1,980 @@
+---
+title: "cell lines"
+author: "Daniel Skubleny"
+date: "08/02/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+##Load Data 
+```{r, warning= FALSE, message=FALSE}
+#Load Data
+edata <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/Expression_21Q4_Public_subsetted.csv", header = TRUE)
+
+pheno <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/sample_info.csv")
+
+
+########Gastric and esophagael
+
+edata <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/gastric_eso_Expression_22Q1_Public_subsetted.csv", header = TRUE)
+
+pheno <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/sample_info.csv")
+
+
+```
+```{r}
+edata = tibble::column_to_rownames(edata, "X")
+edata = t(edata)
+edata = as.data.frame(edata)
+edata = tibble::rownames_to_column(edata, "SYMBOL")
+```
+```{r}
+#Annotate entrez ID
+annotatedfdata = AnnotationDbi::select(org.Hs.eg.db,keys = as.character(edata$SYMBOL), columns = c("SYMBOL","ENTREZID","ENSEMBL"), keytype = "SYMBOL")
+```
+```{r}
+edata = merge(annotatedfdata,edata, by.x="SYMBOL")
+```
+
+```{r}
+#Remove EnsembleID, HUGO and Entrez ID
+edata = dplyr::select(edata, -c("ENTREZID","ENSEMBL")) # Remove HUGO columns
+```
+## Check for NA
+```{r}
+table(is.na(edata$SYMBOL))
+# There is NA due to Entrez Ids that no longer map to gene symbols. 
+```
+```{r}
+#Remove NA Symbols
+edata = edata[!is.na(edata$SYMBOL),]
+```
+## Check for duplicates
+```{r}
+table(duplicated(edata$SYMBOL))
+```
+```{r}
+#Aggregate duplicate genes by mean
+edata %>% group_by(SYMBOL) %>% summarise_all(mean) %>% data.frame() -> edata_merged
+edata = edata_merged
+ #Aggregate and mean duplicate ENTREZIDs 
+```
+
+
+
+##Check for NA genes and NA feature data
+```{r}
+table(is.na(edata$SYMBOL))
+#There is NA Entrez Genes 
+```
+
+```{r}
+edata = edata[!is.na(edata$SYMBOL),]
+```
+
+```{r}
+table(is.na(edata))
+#There is NA data. We will need to investigate this later on. 
+```
+
+
+## Make gene SYMBOL row names
+```{r}
+#This ensures we can set up a matrix for future procedures
+edata = data.frame(edata, row.names = "SYMBOL")
+```
+## Assess dimensions
+```{r}
+#Assess dimensions 
+dim(edata)
+dim(pheno)
+#We can see there is an imbalance. There is RNA seq data missing from the 440 total patients. 
+```
+
+#Assess distribution and transformation
+Boxplot
+```{r}
+# Look at data that is not transformed vs transformed
+par(mfrow=c(1,2))
+boxplot(edata, col=2, range=0)
+```
+Histogram
+```{r}
+par(mfrow=c(1,2))
+hist(edata[,1],col=2)
+```
+Density Plot
+```{r}
+par(mfrow=c(1,2))
+plot(density(edata[,1]),col=2)
+lines(density(edata[,2]),col=3)
+```
+qqPlot
+```{r}
+par(mfrow=c(1,2))
+qqplot(edata[,1], edata[,2],col=3)
+```
+Bland Altman Plot
+```{r}
+# Bland Altman Plot
+mm = edata[,1] - edata[,2]
+aa = edata[,1] + edata[,2]
+plot(aa,mm,col=2) 
+```
+
+#Median intensity 
+```{r}
+median_cells = rowMedians(as.matrix(edata))
+hist(median_cells, breaks=200)
+#Given this is RNAseq count data I will filter low expression genes by mean. 
+```
+
+
+```{r}
+edata = as.data.frame(edata)
+log_edata = filter(edata,rowMeans(edata) > 1)
+dim(log_edata)
+```
+```{r}
+log_edata = log_edata[which(rowMeans(!is.na(log_edata)) > 0.1), which(colMeans(!is.na(log_edata)) > 0.1)]
+dim(log_edata)
+#No significant missing data 
+```
+```{r}
+table(is.na(log_edata))
+#No missing data. Do not need imputation 
+```
+```{r}
+#Check if quantile normalization is required.
+colramp = colorRampPalette(c(3,"white",2))(20)
+plot(density(log_edata[,1]),col=colramp[1],lwd=1,ylim=c(0,.4))
+for(i in 2:37){lines(density(log_edata[,i]),lwd=1,col=colramp[i])}
+#In the plot we can see that quantile normalization will aid in the data analysis
+```
+
+
+#Subtyping TCGA
+```{r}
+housekeeping_genes = c("ACTB", "CTCF", "EIF4G", "HNRNPK", "RPL9", "SUMO3", "XRCC5")
+normalizergenes = c(TCGAfinalgenes,housekeeping_genes)
+
+tcganormalizer <- subset(edata_TCGA, rownames(edata_TCGA) %in% as.matrix(normalizergenes))
+tcganormalizer = t(tcganormalizer)
+  
+cancer_edata_cells <- subset(edata, rownames(edata) %in% as.matrix(normalizergenes))
+cancer_edata_cells = t(cancer_edata_cells)
+```
+```{r}
+#TCGA FSQN to ACRG as reference due to predominate data derived from affymetrix platform and that TME clusters were established ACRG.
+set.seed(99)
+target = as.matrix(tcganormalizer)
+test = as.matrix(cancer_edata_cells)
+fsqn_cancer_cells = quantileNormalizeByFeature(test, target)
+
+```
+```{r}
+fsqn_cancer_cells <- fsqn_cancer_cells[, TCGAfinalgenes]
+```
+#Classify the cancers according to TCGA 
+```{r}
+predict.classify_TCGA = predict(TCGA.finalmodel,fsqn_cancer_cells)
+predict.classify_TCGA_prob = predict(TCGA.finalmodel,fsqn_cancer_cells, type = "prob")
+
+table(predict.classify_TCGA)
+
+
+TCGA_cell_line = as.data.frame(predict.classify_TCGA)
+colnames(TCGA_cell_line) = "TCGA_subtype"
+TCGA_cell_line$sample_id = row.names(fsqn_cancer_cells)
+TCGA_cell_line = cbind(TCGA_cell_line, predict.classify_TCGA_prob)
+
+```
+
+#Subtype ACRG
+
+```{r}
+housekeeping_genes = c("ACTB", "CTCF", "EIF4G", "HNRNPK", "RPL9", "SUMO3", "XRCC5")
+normalizergenes = c(acrgfinalgenes,housekeeping_genes)
+```
+
+```{r}
+#Data sets - reduce to commongenes and transpose for FSQN
+
+#ACRG
+log_ACRG_cancer <- subset(log_ACRG, rownames(log_ACRG) %in% as.matrix(normalizergenes))
+log_ACRG_cancer = t(log_ACRG_cancer)
+
+
+cancer_edata_cells <- subset(edata, rownames(edata) %in% as.matrix(normalizergenes))
+cancer_edata_cells = t(cancer_edata_cells)
+
+```
+
+```{r}
+#FSQN the cancers
+
+set.seed(99)   
+target = as.matrix(log_ACRG_cancer)
+test = as.matrix(cancer_edata_cells)
+classify_ACRG = quantileNormalizeByFeature(test, target)
+```
+```{r}
+classify_ACRG <- classify_ACRG[, acrgfinalgenes]
+```
+#Classify the cancers according to TCGA 
+```{r}
+predict.classify_ACRG = predict(gbm.svm.ACRG_final,classify_ACRG)
+predict.classify_ACRG_prob = predict(gbm.svm.ACRG_final,classify_ACRG, type = "prob")
+
+table(predict.classify_ACRG)
+
+ACRG_cell_line = as.data.frame(predict.classify_ACRG)
+colnames(ACRG_cell_line) = "ACRG_subtype"
+ACRG_cell_line$sample_id = row.names(classify_ACRG)
+ACRG_cell_line = cbind(ACRG_cell_line, predict.classify_ACRG_prob)
+```
+
+
+
+#Subtype TME
+
+```{r}
+housekeeping_genes = c("ACTB", "CTCF", "EIF4G", "HNRNPK", "RPL9", "SUMO3", "XRCC5")
+normalizergenes = c(rntop50,housekeeping_genes)
+```
+
+```{r}
+#Data sets - reduce to commongenes and transpose for FSQN
+log_ACRG_cancer <- subset(log_ACRG, rownames(log_ACRG) %in% as.matrix(normalizergenes))
+log_ACRG_cancer = t(log_ACRG_cancer)
+
+cancer_edata_cells <- subset(edata, rownames(edata) %in% as.matrix(normalizergenes))
+cancer_edata_cells = t(cancer_edata_cells)
+
+#Missing HLA-DRA gene... hist(log_ACRG_cancer[,21]) set to zero
+
+
+####GASTRIC ONLY 
+cancer_edata_cells = as.data.frame(cancer_edata_cells)
+cancer_edata_cells$'HLA-DRA' = c(rep(0,37))
+cancer_edata_cells = as.matrix(cancer_edata_cells)
+
+
+
+####ESO AND GASTRIC
+cancer_edata_cells = as.data.frame(cancer_edata_cells)
+cancer_edata_cells$'HLA-DRA' = c(rep(0,44))
+cancer_edata_cells = as.matrix(cancer_edata_cells)
+```
+
+```{r}
+#FSQN the cancers
+
+set.seed(99)   
+target = as.matrix(log_ACRG_cancer)
+test = as.matrix(cancer_edata_cells)
+classify_TME = quantileNormalizeByFeature(test, target)
+```
+
+```{r}
+#Reduce to final genes
+
+classify_TME <- classify_TME[, rntop50]
+```
+```{r}
+#Classify the cancers according to TCGA 
+
+predict.classify_TME = predict(tme.final,classify_TME)
+predict.classify_TME_prob = predict(tme.final,classify_TME, type = "prob")
+
+table(predict.classify_TME)
+
+predict.classify_TME_prob= tibble::rownames_to_column(predict.classify_TME_prob, "sample_id")
+
+TME_cell_line = as.data.frame(predict.classify_TME)
+colnames(TME_cell_line) = "TCGA_subtype"
+TME_cell_line$sample_id = row.names(classify_TME)
+TME_cell_line = merge(TME_cell_line, predict.classify_TME_prob, by= "sample_id")
+```
+
+```{r}
+#Extract calibrated probabilities 
+
+predict.classify_TME_cal = predict(tme.final_calibration,predict.classify_TME_prob)
+predict.classify_TME_prob_cal = predict(tme.final_calibration,predict.classify_TME_prob, type = "prob")
+colnames(predict.classify_TME_prob_cal) = c("High_cal", "Low_cal")
+
+TME_cal = as.data.frame(row.names(classify_TME))
+TME_cal$TME_subtype_cal = predict.classify_TME_cal
+colnames(TME_cal)[which(names(TME_cal) == "row.names(classify_TME)")] <- "sample_id"
+
+TME_prob_cal = as.data.frame(row.names(classify_TME))
+TME_prob_cal$High_cal = predict.classify_TME_prob_cal$High_cal
+TME_prob_cal$Low_cal = predict.classify_TME_prob_cal$Low_cal
+colnames(TME_prob_cal)[which(names(TME_prob_cal) == "row.names(classify_TME)")] <- "sample_id"
+
+
+
+TME_cell_line = merge(TME_cal, TME_prob_cal, by= "sample_id")
+```
+
+#Drug analysis and phenotype analysis
+
+Note: Low IC50 = more sensitive. Low AUC = more sensitive. 
+
+```{r}
+results = merge(TME_cell_line, TCGA_cell_line, by= "sample_id")
+results = merge(results, ACRG_cell_line, by= "sample_id")
+
+results$sample_id = gsub("\\.", "-", results$sample_id)
+
+combo_data = merge(pheno, results, by.x="DepMap_ID", by.y = "sample_id")
+colnames(combo_data)[which(names(combo_data) == "DepMap_ID")] <- "sample_id"
+
+plot(combo_data$sex, combo_data$TCGA_subtype)
+
+plot(as.factor(combo_data$sex), combo_data$STAD_CIN)
+plot(as.factor(combo_data$sex), combo_data$STAD_MSI)
+plot(as.factor(combo_data$sex), combo_data$STAD_EBV)
+plot(as.factor(combo_data$sex), combo_data$STAD_GS)
+plot(as.factor(combo_data$sex), combo_data$MSI)
+plot(as.factor(combo_data$sex), combo_data$MSS_TP53neg)
+plot(as.factor(combo_data$sex), combo_data$MSS_TP53pos)
+plot(as.factor(combo_data$sex), combo_data$EMT)
+plot(as.factor(combo_data$sex), combo_data$High_cal)
+
+plot(as.factor(combo_data$primary_or_metastasis), combo_data$STAD_CIN)
+plot(as.factor(combo_data$primary_or_metastasis), combo_data$STAD_MSI)
+plot(as.factor(combo_data$primary_or_metastasis), combo_data$STAD_EBV)
+plot(as.factor(combo_data$primary_or_metastasis), combo_data$STAD_GS)
+plot(as.factor(combo_data$primary_or_metastasis), combo_data$MSI)
+plot(as.factor(combo_data$primary_or_metastasis), combo_data$MSS_TP53neg)
+plot(as.factor(combo_data$primary_or_metastasis), combo_data$MSS_TP53pos)
+plot(as.factor(combo_data$primary_or_metastasis), combo_data$EMT)
+plot(as.factor(combo_data$primary_or_metastasis), combo_data$High_cal)
+
+plot(as.factor(combo_data$primary_or_metastasis), as.factor(combo_data$TCGA_subtype))
+
+
+
+plot(as.factor(combo_data$TCGA_subtype), combo_data$age)
+kruskal.test(combo_data$age,as.factor(combo_data$TCGA_subtype))
+
+plot(as.factor(combo_data$ACRG_subtype), combo_data$age)
+kruskal.test(combo_data$age,as.factor(combo_data$ACRG_subtype))
+
+plot(as.factor(combo_data$TME_subtype_cal), combo_data$age)
+kruskal.test(combo_data$age,as.factor(combo_data$TME_subtype_cal))
+
+```
+
+#///////SANGER Drug sensitivity AUC GDSC2
+```{r}
+sanger_drug_AUC <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/Drug_sensitivity_AUC_(Sanger_GDSC2)_subsetted_NAsdropped.csv", row.names=1, stringsAsFactors=TRUE)
+
+sanger_drug_AUC = tibble::rownames_to_column(sanger_drug_AUC, "sample_id")
+
+sanger_drug_AUC= merge(combo_data, sanger_drug_AUC, by="sample_id")
+```
+###PLOT: Subtype probabilities amongst cell lines in the CCLE and included in the SANGER study. 
+```{r}
+combo_data_plot = combo_data
+
+sanger_ids = as.data.frame(sanger_drug_AUC$sample_id)
+sanger_ids$Sanger  = "sanger"
+colnames(sanger_ids) = c("sample_id", "Sanger")
+
+combo_data_plot = merge(combo_data_plot,sanger_ids, by="sample_id", all=TRUE )
+combo_data_plot$Sanger[is.na(combo_data_plot$Sanger)] <- "Excluded"
+combo_data_plot$Sanger = as.factor(combo_data_plot$Sanger)
+levels(combo_data_plot$Sanger) = c("Excluded", "Included")
+
+cell_line_subtypes = combo_data_plot %>% select(c("cell_line_name","TCGA_subtype", "ACRG_subtype", "TME_subtype_cal", "High_cal", "Low_cal", "STAD_CIN", "STAD_EBV", "STAD_GS", "STAD_MSI", "MSS_TP53neg", "MSS_TP53pos", "MSI", "EMT"))
+
+write.csv(cell_line_subtypes, "cell_line_subtypes.csv")
+
+combo_data_plot_long = dplyr::select(combo_data_plot, c("STAD_CIN", "STAD_MSI","STAD_EBV", "STAD_GS","EMT", "MSI","MSS_TP53neg", "MSS_TP53pos","High_cal", "Low_cal", "Sanger"))
+
+combo_data_plot_long = tidyr::gather(combo_data_plot_long, subtype, probability, STAD_CIN:Low_cal, factor_key=TRUE)
+
+combo_data_plot_long$subtype = factor(combo_data_plot_long$subtype, c("STAD_CIN", "STAD_EBV", "STAD_GS","STAD_MSI", "EMT", "MSI", "MSS_TP53neg","MSS_TP53pos", "High_cal", "Low_cal"))
+
+
+##Main plot
+cell_line_probs = ggplot(data = combo_data_plot_long,aes(x = subtype, y = probability, fill = subtype))+
+    geom_violin(alpha=0.4, scale = "width",size=1,color=NA, adjust=2.5,show.legend = F) +   
+    geom_boxplot(notch = FALSE,  outlier.size = -1, color="black",lwd=1, alpha = 0.2,show.legend = F) + 
+     ggbeeswarm::geom_quasirandom(inherit.aes=FALSE, data =combo_data_plot_long, aes(x = subtype, y = probability, colour = Sanger, fill=subtype), method = "quasirandom", shape = 21,size=2,stroke=1.75, dodge.width=0.75, width = 0.2,alpha=0.9,show.legend = T, bandwidth = 1)+
+  scale_fill_manual(values = c("#F39B7FFF", "#91D1C2FF","#4DBBD5FF","#E64B35FF", "#A6CEE3", "#3C5488FF", "#8491B4FF", "#33A02C","#925E9FFF","#EFC000FF")) +
+  scale_colour_manual(name = "Sanger Experiment", values = c("#377EB8", "black")) +
+  scale_x_discrete(labels = c("CIN", "EBV", "GS","TCGA MSI", "EMT", "MSI", "MSS TP53-", "MSS TP53+", "High", "Low")) +
+  ylab("Probability") + 
+  ggtitle("Cell Line Subtype Probability Scores") +
+  theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 14,angle = 90, hjust=1, vjust=0.5))  +
+  theme(axis.text.y = element_text(colour="black",size = 14)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_blank()) +
+  theme(axis.title.y = element_text(colour="black", size=14)) + 
+  theme(legend.text = element_text(color = "black", size = 14),
+        legend.title = element_text(color = "black", size = 14),
+        legend.position = "right") +
+  guides(fill = "none") 
+
+ggsave("cell_line_probs.svg", cell_line_probs, width=8, height=4)
+
+
+
+####TEST IF SIMILAR DISTRIBUTION OF STUDY POPULATION IS REFLECTED IN THE CELL LINES
+complete_subtype <- read.csv("~/Documents/R projects/TCGA Draft 2/complete_subtype_mar9.csv", row.names=1, stringsAsFactors=TRUE)
+
+pvals= c(
+wilcox.test(complete_subtype$STAD_CIN,combo_data$STAD_CIN)$p.value,
+wilcox.test(complete_subtype$STAD_MSI,combo_data$STAD_MSI)$p.value,
+wilcox.test(complete_subtype$STAD_EBV,combo_data$STAD_EBV)$p.value,
+wilcox.test(complete_subtype$STAD_GS,combo_data$STAD_GS)$p.value,
+wilcox.test(complete_subtype$EMT,combo_data$EMT)$p.value,
+wilcox.test(complete_subtype$MSI,combo_data$MSI)$p.value,
+wilcox.test(complete_subtype$MSS_TP53neg,combo_data$MSS_TP53neg)$p.value,
+wilcox.test(complete_subtype$MSS_TP53pos,combo_data$MSS_TP53pos)$p.value,
+wilcox.test(complete_subtype$High_cal,combo_data$High_cal)$p.value) #****** significant# p.adjust = 0.009909342
+
+p.adjust(pvals, method="BH")
+
+##JUST the included
+pvals= c(
+wilcox.test(complete_subtype$STAD_CIN,combo_data_plot[combo_data_plot$Sanger=="Included",]$STAD_CIN)$p.value,
+wilcox.test(complete_subtype$STAD_MSI,combo_data_plot[combo_data_plot$Sanger=="Included",]$STAD_MSI)$p.value,
+wilcox.test(complete_subtype$STAD_EBV,combo_data_plot[combo_data_plot$Sanger=="Included",][combo_data_plot$Sanger=="Included",]$STAD_EBV)$p.value,
+wilcox.test(complete_subtype$STAD_GS,combo_data_plot[combo_data_plot$Sanger=="Included",]$STAD_GS)$p.value,
+wilcox.test(complete_subtype$EMT,combo_data_plot[combo_data_plot$Sanger=="Included",]$EMT)$p.value,
+wilcox.test(complete_subtype$MSI,combo_data_plot[combo_data_plot$Sanger=="Included",]$MSI)$p.value,
+wilcox.test(complete_subtype$MSS_TP53neg,combo_data_plot[combo_data_plot$Sanger=="Included",]$MSS_TP53neg)$p.value,
+wilcox.test(complete_subtype$MSS_TP53pos,combo_data_plot[combo_data_plot$Sanger=="Included",]$MSS_TP53pos)$p.value,
+wilcox.test(complete_subtype$High_cal,combo_data_plot[combo_data_plot$Sanger=="Included",]$High_cal)$p.value) #****** significant# p.adjust = 0.009909342
+
+p.adjust(pvals, method="BH")
+
+###PLOT SHOWING COMPARISONS 
+
+probabilities_long = dplyr::select(complete_subtype, c("STAD_CIN", "STAD_MSI","STAD_EBV", "STAD_GS","EMT", "MSI","MSS_TP53neg", "MSS_TP53pos","High_cal", "Low_cal"))
+probabilities_long = tidyr::gather(probabilities_long, subtype, probability, STAD_CIN:Low_cal, factor_key=TRUE)
+probabilities_long$subtype = factor(probabilities_long$subtype, c("STAD_CIN", "STAD_EBV", "STAD_GS","STAD_MSI", "EMT", "MSI", "MSS_TP53neg","MSS_TP53pos", "High_cal", "Low_cal"))
+probabilities_long$Specimen = "Bulk Tumour"
+
+combo_cellline_plot_long = combo_data_plot_long
+combo_cellline_plot_long = combo_cellline_plot_long[,-1]
+combo_cellline_plot_long$Specimen = "Cell Line"
+####THIS SHOWS that the subtypes are reasonably represented in 2d cell lines when compared to bulk tumours. They DO NOT represent the high or low subtypes though. 
+combo_cellline_plot_long = rbind(combo_cellline_plot_long,probabilities_long )
+
+##Supplemental plot
+supp_cell_line_probs = ggplot(data = combo_cellline_plot_long,aes(x = subtype, y = probability, fill = Specimen))+
+     ggbeeswarm::geom_quasirandom(inherit.aes=FALSE, data =combo_cellline_plot_long, aes(x = subtype, y = probability, colour = subtype, fill=Specimen), method = "quasirandom", shape = 21,size=2,stroke=1.25, dodge.width=0.75, width = 0.1,alpha=0.8,show.legend = T, bandwidth = 1)+
+      geom_boxplot(notch = FALSE,  outlier.size = -1, color="black",lwd=1, alpha = 0.5,show.legend = F) + 
+  scale_colour_manual(values = c("#F39B7FFF", "#91D1C2FF","#4DBBD5FF","#E64B35FF", "#A6CEE3", "#3C5488FF", "#8491B4FF", "#33A02C","#925E9FFF","#EFC000FF")) +
+  scale_fill_manual(name = "Sample Origin", values = c("gray85", "black")) +
+  scale_x_discrete(labels = c("CIN", "EBV", "GS","TCGA MSI", "EMT", "MSI", "MSS TP53-", "MSS TP53+", "High", "Low")) +
+  ylab("Probability") + 
+  ggtitle("Cell Line Subtype Probability Scores") +
+  theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 12,angle = 90, hjust=1, vjust=0.5))  +
+  theme(axis.text.y = element_text(colour="black",size = 12)) + 
+  theme(plot.title = element_text(colour="black", size=12,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_blank()) +
+  theme(axis.title.y = element_text(colour="black", size=12)) + 
+  theme(legend.text = element_text(color = "black", size = 12),
+        legend.title = element_text(color = "black", size = 12)) +
+  guides(colour = "none")
+
+ggsave("supp_cell_line_probs.svg", supp_cell_line_probs, width=12, height=4)
+```
+
+###Comprehensive analysis 
+```{r}
+#Filter out drugs with greater than 25%  of cell lines missing
+sanger_drug_AUC = sanger_drug_AUC[lapply(sanger_drug_AUC, function(x) sum(is.na(x)) / length(x) ) <= 0.25 ]
+
+sanger_drug_AUC_cor = sanger_drug_AUC[,-c(2:26)]
+sanger_drug_AUC_cor = dplyr::select(sanger_drug_AUC_cor, -c("TME_subtype_cal","TCGA_subtype","ACRG_subtype"))
+
+  
+cor_matt_sanger_drug_AUC = cor((sanger_drug_AUC_cor[,-1]),use="pairwise.complete.obs", method="pearson")
+cor_matt_sanger_drug_AUC = cor_matt_sanger_drug_AUC[-c(11:nrow(cor_matt_sanger_drug_AUC)), -c(1:10)] 
+
+#####COR TEST
+sanger_corr = Hmisc::rcorr(as.matrix(sanger_drug_AUC_cor[,-1]))
+flattenCorrMatrix <- function(cormat, pmat) {
+  ut <- upper.tri(cormat)
+  data.frame(
+    row = rownames(cormat)[row(cormat)[ut]],
+    column = rownames(cormat)[col(cormat)[ut]],
+    cor  =(cormat)[ut],
+    p = pmat[ut]
+    )
+}
+sanger_corr_df = flattenCorrMatrix(sanger_corr$r, sanger_corr$P)
+sanger_corr_df = sanger_corr_df %>% filter(row== "High_cal" | row== "Low_cal" | row== "STAD_CIN"| row== "STAD_MSI"| row== "STAD_EBV"| row== "STAD_GS"| row== "MSI"| row== "EMT"| row== "MSS_TP53neg"| row== "MSS_TP53pos")
+sanger_corr_df = sanger_corr_df[-c(1:45),]
+sanger_corr_df$p.adjust = p.adjust(sanger_corr_df$p, method = "BH")
+sanger_corr_df$sig = cut(sanger_corr_df$p, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+sanger_corr_df$sig.adjust = cut(sanger_corr_df$p.adjust, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+sanger_corr_df$rsquared = abs(sanger_corr_df$cor)^2
+#######
+
+sanger_mean_auc = colMeans(sanger_drug_AUC[,c(40:154)], na.rm=TRUE)
+sanger_mean_auc = as.data.frame(sanger_mean_auc)
+sanger_mean_auc = tibble::rownames_to_column(sanger_mean_auc, "drug_name")
+sanger_corr_df = merge(sanger_corr_df,sanger_mean_auc, by.x = "column", by.y="drug_name" )
+
+table(is.na(cor_matt_sanger_drug_AUC))
+giveNAs = which(is.na(as.matrix(cor_matt_sanger_drug_AUC)),arr.ind=TRUE)
+head(giveNAs)
+cor_matt_sanger_drug_AUC = cor_matt_sanger_drug_AUC[, colSums(is.na(cor_matt_sanger_drug_AUC)) != nrow(cor_matt_sanger_drug_AUC)]
+table(is.na(cor_matt_sanger_drug_AUC))
+
+
+####VOLCANO PLOT FOR SANGER_CORR_DF
+sanger_corr_df_plot = sanger_corr_df
+
+sanger_corr_df_plot$row = factor(sanger_corr_df_plot$row, c("STAD_CIN", "STAD_EBV", "STAD_GS","STAD_MSI", "EMT", "MSI", "MSS_TP53neg","MSS_TP53pos", "High_cal", "Low_cal"))
+
+sanger_corr_df_plot = sanger_corr_df_plot %>% 
+  filter(!row =="Low_cal") 
+sanger_corr_df_plot$drug_name = 
+  
+  
+sanger_corr_df_plot$drug_name = gsub("..GDSC2.*","",sanger_corr_df_plot$column)
+sanger_corr_df_plot$drug_name =  gsub('\\.', '-', sanger_corr_df_plot$drug_name)
+sanger_corr_df_plot$drug_name = toupper(sanger_corr_df_plot$drug_name)
+
+
+cor_volcano = sanger_corr_df_plot %>%
+  ggplot(aes(x = cor, y = -log10(p), fill= row, label=drug_name)) + 
+  geom_hline(yintercept = 1.30103, linetype=2) +
+  geom_point(shape=21,size=3.5, alpha=0.9,colour="black") + 
+  scale_fill_manual(name="Subtype", labels = c("CIN", "EBV", "GS","TCGA MSI", "EMT", "MSI", "MSS TP53-", "MSS TP53+", "High"),   values = c("#F39B7FFF", "#91D1C2FF","#4DBBD5FF","#E64B35FF", "#A6CEE3", "#3C5488FF", "#8491B4FF", "#33A02C","#925E9FFF")) + 
+   ggrepel::geom_text_repel(
+    data          = subset(sanger_corr_df_plot, abs(cor) > 0.6),
+    nudge_x       = 0 - subset(sanger_corr_df_plot, abs(cor) > 0.6)$cor,
+    segment.size  = 0.2,
+    segment.color = "black",
+    direction     = "y"
+  ) + 
+  ggtitle("Pearson Correlation Volcano Plot") +
+  xlab("Pearson Correlation Coefficient") + 
+  ylab(expression("-log"[10]~"(p value)")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 14))  +
+  theme(axis.text.y = element_text(colour="black",size = 14)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_text(colour="black",size = 14, vjust=-10)) +
+  theme(axis.title.y = element_text(colour="black", size=14)) + 
+  theme(plot.margin = unit(c(0.5,0.5,3,0.5), "cm")) +
+  theme(legend.position = c(0, -0.5),
+        legend.direction = "horizontal",
+        legend.justification=c(0.1,1),
+        legend.text = element_text(color = "black", size = 13),
+        legend.title = element_text(color = "black", size = 13))
+
+ggsave("cor_volcano.svg", cor_volcano, width=6.2, height=4.25)
+
+write.csv(sanger_corr_df_plot, "correlation_AUC_subtype_score_Fig6C.csv")
+
+
+pheatmap(cor_matt_sanger_drug_AUC)
+
+check = as.data.frame(t(cor_matt_sanger_drug_AUC))
+check = tibble::rownames_to_column(check, "drug_name")  
+check_long = tidyr::gather(check, subtype, value, High_cal:EMT )
+
+check_long$drug_name_id = str_sub(check_long$drug_name, start= -5, end=-2)
+
+drug_types <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/screened_compunds_rel_8.2.csv", stringsAsFactors=TRUE)
+
+check_long = merge(drug_types,check_long, by.x = "DRUG_ID", by.y = "drug_name_id"  )
+
+write.csv(check_long, "sanger_AUC_cell_line_.csv")
+	
+###DISCUSS THE DIFFERENCES BETWEEN CIN AND EBV and the realistic results obtained for these signatures in reference to findings in the TCGA paper. 
+check_long_plot_a = check_long
+check_long_plot_a$sig = check_long_plot_a$TARGET_PATHWAY=="DNA replication" | check_long_plot_a$TARGET_PATHWAY=="PI3K/MTOR signaling"
+check_long_plot_a$sig = as.factor(check_long_plot_a$sig)
+check_long_plot_a$sig = relevel(check_long_plot_a$sig, "TRUE")
+
+msstp53pos_targets = check_long_plot_a %>%
+    filter(subtype=="MSS_TP53pos") %>%
+    group_by(TARGET_PATHWAY) %>% 
+    filter(n() > 3) %>%
+    ggplot(aes(x=value, y=reorder(TARGET_PATHWAY, -value), colour=sig)) + 
+    geom_vline(xintercept = 0, linetype=2, alpha=0.8) +
+    stat_summary(fun.data = mean_cl_boot, geom="errorbar", width=0.5, size=1.5) +
+    stat_summary(fun.data = mean_cl_boot, geom="point", size = 5) +
+    scale_colour_manual(name = "Adjusted p",labels=c("Significant", "NS"),values = c("#B2182B","#4393C3")) +
+    ylab("Target Pathway") +
+    xlab("Mean Pearson Correlation [95% CI]") +
+    ggtitle("Effect of MSS TP53+ score on drug targets") +
+    theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 14))  +
+  theme(axis.text.y = element_text(colour="black",size = 14)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_text(colour="black",size = 14)) +
+  theme(axis.title.y = element_text(colour="black", size=14)) + 
+  theme(legend.position = "bottom",
+        legend.text = element_text(color = "black", size = 13),
+        legend.title = element_text(color = "black", size = 13))
+    
+ggsave("msstp53pos_targets.svg", msstp53pos_targets, width=7, height=4)
+
+check_long_plot_b= check_long
+check_long_plot_b$comparison = ifelse(check_long_plot_b$TARGET_PATHWAY=="EGFR signaling", "Favourable",
+                                      ifelse(check_long_plot_b$TARGET_PATHWAY=="DNA replication" | check_long_plot_b$TARGET_PATHWAY=="Mitosis" |check_long_plot_b$TARGET_PATHWAY=="Other"|check_long_plot_b$TARGET_PATHWAY=="Genome integrity"|check_long_plot_b$TARGET_PATHWAY=="PI3K/MTOR signaling", "Unfavourable", "Not significant"))
+
+check_long_plot_b %>%
+   filter(subtype=="STAD_CIN") %>%
+   kruskal.test(value~TARGET_PATHWAY, data=.)
+  
+  
+cin_targets = check_long_plot_b %>%
+   filter(subtype=="STAD_CIN") %>%
+   group_by(TARGET_PATHWAY) %>% 
+   filter(n() > 3) %>%
+ggplot(aes(x=value, y=reorder(TARGET_PATHWAY, -value), fill = comparison)) +
+  geom_vline(xintercept = 0, linetype=2) + 
+  geom_boxplot(alpha=0.9) +
+  scale_fill_manual(name="Efficacy", values=c("#4DAF4A", "#999999", "#E41A1C" )) +
+  scale_x_continuous(breaks = c(-0.6,-0.4,-0.2,0,0.2,0.4)) +
+  ylab("Drug Target Pathway") +
+  xlab("Pearson Correlation Coefficient") +
+  ggtitle("CIN score and drug target efficacy") +
+  annotate("text",x=0.45, y=12, label="Kruskal-Wallis,\n p<0.001", hjust=1, size=4.25) + 
+  theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 13))  +
+  theme(axis.text.y = element_text(colour="black",size = 13)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_text(colour="black",size = 14, vjust=-8)) +
+  theme(axis.title.y = element_text(colour="black", size=14)) + 
+  theme(plot.margin = unit(c(0.5,0.5,3,0.5), "cm")) +
+  theme(legend.position = c(0, -0.35),
+        legend.direction = "horizontal",
+        legend.justification=c(0.25,1),
+        legend.text = element_text(color = "black", size = 13),
+        legend.title = element_text(color = "black", size = 13))
+
+ggsave("cin_targets.svg", cin_targets, width=7, height=4.5)
+
+
+Fig6B = check_long_plot_b %>%
+   filter(subtype=="STAD_CIN") %>%
+   group_by(TARGET_PATHWAY) %>% 
+   filter(n() > 3)
+
+write.csv(Fig6B, "cin_targets_Fig6B.csv")
+
+```
+
+
+#Multiple tests - do the drug effects deviate from no effect?
+```{r}
+
+
+### PI3K plot
+check_long_plot_c = check_long
+check_long_plot_c$comparison = ifelse(check_long_plot_c$subtype=="EMT" |check_long_plot_c$subtype=="STAD_EBV" | check_long_plot_c$subtype=="STAD_MSI"| check_long_plot_c$subtype=="MSS_TP53neg", "Favourable", "Unfavourable")
+
+check_long_plot_c$comparison_b = ifelse(check_long_plot_c$subtype=="EMT" |check_long_plot_c$subtype=="STAD_EBV" | check_long_plot_c$subtype=="STAD_MSI", "Favourable",
+                                      ifelse(check_long_plot_c$subtype=="STAD_GS" | check_long_plot_c$subtype=="High_cal" |check_long_plot_b$subtype=="MSS_TP53pos"|check_long_plot_c$subtype=="STAD_CIN"|check_long_plot_c$subtype=="MSI", "Unfavourable", NA))
+
+check_long_plot_c$comparison_c = ifelse(check_long_plot_c$subtype=="MSS_TP53neg", "Favourable",
+                                      ifelse(check_long_plot_c$subtype=="STAD_CIN" | check_long_plot_c$subtype=="MSI", "Unfavourable", NA))
+check_long_plot_c$comparison = as.factor(check_long_plot_c$comparison)
+check_long_plot_c$comparison_b = as.factor(check_long_plot_c$comparison_b)
+check_long_plot_c$comparison_c = as.factor(check_long_plot_c$comparison_c)
+
+check_long_plot_c = check_long_plot_c %>%
+    filter(TARGET_PATHWAY=="PI3K/MTOR signaling") %>%
+    filter(!subtype=="Low_cal")
+
+#Order of decreasing correlation value
+check_long_plot_c$subtype = factor(check_long_plot_c$subtype, levels = rev(c("EMT", "STAD_EBV", "STAD_MSI", "MSS_TP53neg", "MSI", "STAD_CIN", "MSS_TP53pos", "High_cal", "STAD_GS")))
+###PLOT
+
+pik3_drug_plot = ggplot(check_long_plot_c, aes(x=value, y = subtype, fill = subtype)) + 
+    geom_vline(xintercept = 0, linetype=2) +
+    geom_boxplot(alpha=0.85) +
+    ggtitle("Efficacy of PI3K/MTOR targeted therapy according to subtype") +
+    xlab("Pearson Correlation Coefficient") +
+    ylab("Molecular Subtype") +
+    scale_fill_manual(values= rev(c("#A6CEE3","#91D1C2FF","#E64B35FF","#8491B4FF","#3C5488FF","#F39B7FFF","#33A02C","#925E9FFF","#4DBBD5FF" ))) +
+    scale_y_discrete(labels=rev(c("EMT", "EBV", "TCGA MSI", "MSS TP53-", "MSI", "CIN", "MSS TP53+", "TME High", "GS"))) +
+  annotate("text", label="Kruskal-Wallis, p=<0.001", x=0.32, y=8.5) +
+   theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 14)) +
+  theme(axis.text.y = element_text(colour="black",size = 14)) + 
+  theme(plot.title = element_text(colour="black", size=14,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_text(colour="black", size =15, vjust = -8)) +
+  theme(axis.title.y = element_text(colour="black", size=15)) +
+  theme(plot.margin = unit(c(0.5,0.5,2,0.5), "cm")) +
+  theme(legend.title =element_blank(),
+        legend.position="none")
+ggsave("pik3_drug_plot.svg", pik3_drug_plot, height = 4, width = 7)
+  
+write.csv(check_long_plot_c, "multicomp_sangerdrug_PI3KMTOR_Fig6D.csv")
+
+
+####DUNN for PI3K/MTOR signaling targets
+dunn_test_pi3k = check_long %>%
+   filter(TARGET_PATHWAY=="PI3K/MTOR signaling") %>%
+   filter(!subtype=="Low_cal") %>%
+   FSA::dunnTest(value ~ subtype, data=., method="bonferroni" )
+dunn_test_pi3k = dunn_test_pi3k[["res"]]
+dunn_test_pi3k$sig = cut(dunn_test_pi3k$P.unadj, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+dunn_test_pi3k$sig.adjust = cut(dunn_test_pi3k$P.adj, c(0,0.001,0.01,0.05,0.1,Inf), c("***", "**", "*", ".",""))
+
+#Z score = 1.96 for unadjusted p value cutoff
+multicomp_sangerdrug <- read.csv("~/Documents/R projects/TCGA Draft 2/multicomp_sangerdrug.csv", stringsAsFactors=TRUE)
+
+multicomp_sangerdrug$sig = ifelse(multicomp_sangerdrug$sig=="****", "***",
+                           ifelse(multicomp_sangerdrug$sig=="***","***",
+                           ifelse(multicomp_sangerdrug$sig=="**", "**",
+                           ifelse(multicomp_sangerdrug$sig=="*", "*", "ns"))))
+multicomp_sangerdrug$sig = as.factor(multicomp_sangerdrug$sig)
+multicomp_sangerdrug$sig <- factor(multicomp_sangerdrug$sig, levels = c("***" , "**", "*", "ns"))
+
+
+dunns_plot = ggplot(multicomp_sangerdrug, aes(x = Z, y=reorder(Test,-Z), fill=sig))  + 
+  geom_vline(xintercept=-1.96, linetype=2) +
+  geom_bar(stat = "identity", alpha=0.8, colour= "black", width=0.75) + 
+  ggtitle("Dunn's Multiple Comparison's") + 
+  xlab("Z-statistic") + 
+  ylab("Subtype") + 
+  scale_fill_manual(name="Adjusted P (Bonferroni)", labels=c("<0.001", "<0.01", "<0.05", "NS"),values=c("#006837","#41AB5D", "#A1D99B", "black")) + 
+  facet_wrap(~Reference) +
+     theme_bw() +
+  theme(axis.text.x = element_text(colour="black", size = 13)) +
+  theme(axis.text.y = element_text(colour="black",size = 13)) + 
+  theme(plot.title = element_text(colour="black", size=13,hjust = 0, vjust=0)) +
+  theme(axis.title.x = element_text(colour="black", size =13, vjust = 0.05)) +
+  theme(axis.title.y = element_text(colour="black", size=13)) +
+  theme(strip.background =element_rect(fill="white"),
+        strip.text = element_text(size=13),
+        strip.text.x = element_text(margin = ggplot2::margin(0,0,0,0, "cm"))) +
+  theme(legend.title =element_text(colour="black", size = 13),
+        legend.text = element_text(colour="black", size = 13),
+        legend.position="bottom",
+        legend.justification=c(1.2,1))
+
+ggsave("dunns_plot.svg", dunns_plot, width= 6, height = 3.6)
+
+write.csv(multicomp_sangerdrug, "multicomp_sangerdrug_Fig6E.csv")
+
+
+```
+
+
+
+
+
+
+
+
+#MSI and p53 vs cell line subtype score s
+```{r}
+library(readxl)
+msi_status <- read_excel("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/Chan_et_al_2019_Supplementary_Table_1.xlsx")
+
+msi_analysis = merge(combo_data, msi_status, by.x="CCLE_Name", by.y= "CCLE_ID")
+
+msi_analysis$GDSC_MSI = as.factor(msi_analysis$GDSC_MSI)
+msi_analysis$CCLE_MSI = as.factor(msi_analysis$CCLE_MSI)
+msi_analysis$MMR_loss = as.factor(msi_analysis$MMR_loss)
+
+
+ggplot(msi_analysis, aes(x =CCLE_MSI , y= STAD_MSI)) + geom_boxplot() + stat_compare_means()
+msi_analysis %>% rstatix::wilcox_effsize(STAD_MSI ~ CCLE_MSI)
+
+msi_analysis %>% filter(!GDSC_MSI=="NA")  %>% 
+ggplot(aes(x =GDSC_MSI , y= STAD_MSI)) + geom_boxplot() + stat_compare_means()
+msi_analysis %>% filter(!GDSC_MSI=="NA") %>% rstatix::wilcox_effsize(STAD_MSI ~ GDSC_MSI)
+
+msi_analysis %>% filter(!MMR_loss=="NA") %>%
+ggplot(aes(x =MMR_loss , y= STAD_MSI)) + geom_boxplot() + stat_compare_means()
+msi_analysis %>% filter(!MMR_loss=="NA") %>% rstatix::wilcox_effsize(STAD_MSI ~ MMR_loss)
+
+
+ggplot(msi_analysis, aes(x =ms_deletions_normed , y= STAD_MSI)) + geom_point() + geom_smooth(method="lm", se=FALSE) +
+  stat_cor(inherit.aes=FALSE,
+                  method="pearson", 
+                  label.x = 0.005,
+                  aes(x = ms_deletions_normed, y =STAD_MSI),
+                  cor.coef.name = "rho",
+                  size = 4.5,
+                  r.digits = 2,
+                  p.digits = 2) 
+
+ggplot(msi_analysis, aes(x =ms_deletions_normed , y= MSI)) + geom_point() +geom_smooth(method="lm", se=FALSE) +  stat_cor(inherit.aes=FALSE,
+                  method="pearson", 
+                  label.x = 0.005,
+                  aes(x = ms_deletions_normed, y =MSI),
+                  cor.coef.name = "rho",
+                  size = 4.5,
+                  r.digits = 2,
+                  p.digits = 2)
+
+ggplot(msi_analysis, aes(x =frac_deletions_in_ms_regions , y= STAD_MSI)) + geom_point() + geom_smooth(method="lm", se=FALSE) +
+  stat_cor(inherit.aes=FALSE,
+                  method="pearson", 
+                  label.x = 0.005,
+                  aes(x = frac_deletions_in_ms_regions, y =STAD_MSI),
+                  cor.coef.name = "rho",
+                  size = 4.5,
+                  r.digits = 2,
+                  p.digits = 2) 
+
+ggplot(msi_analysis, aes(x =frac_deletions_in_ms_regions , y= MSI)) + geom_point() + geom_smooth(method="lm", se=FALSE) + stat_cor(inherit.aes=FALSE,
+                  method="pearson", 
+                  label.x = 0.005,
+                  aes(x = frac_deletions_in_ms_regions, y =MSI),
+                  cor.coef.name = "rho",
+                  size = 4.5,
+                  r.digits = 2,
+                  p.digits = 2)
+
+
+ggplot(msi_analysis, aes(x =CCLE_MSI , y= MSI)) + geom_boxplot() + stat_compare_means()
+ggplot(msi_analysis, aes(x =GDSC_MSI , y= MSI)) + geom_boxplot() + stat_compare_means()
+ggplot(msi_analysis, aes(x =MMR_loss , y= MSI)) + geom_boxplot() + stat_compare_means()
+
+msi_analysis %>%
+    filter(!TP53_status=="NA")  %>%
+ggplot(aes(x =TP53_status , y= STAD_CIN)) + geom_boxplot() + stat_compare_means()
+msi_analysis %>%filter(!TP53_status=="NA")  %>% rstatix::wilcox_effsize(STAD_CIN ~ TP53_status, boot=1000, ci = TRUE, ci.type="bca")
+
+msi_analysis %>%
+    filter(!TP53_status=="NA")  %>%
+ggplot(aes(x =TP53_status , y= MSS_TP53neg)) + geom_boxplot() + stat_compare_means()
+cheese = msi_analysis %>%filter(!TP53_status=="NA")  %>% rstatix::wilcox_effsize(MSS_TP53neg ~ TP53_status, boot=1000, ci = TRUE, ci.type="bca")
+
+
+msi_analysis %>%
+    filter(!TP53_status=="NA")  %>%
+ggplot(aes(x =TP53_status , y= MSS_TP53pos)) + geom_boxplot() + stat_compare_means()
+
+```
+
+#Copy number 
+```{r}
+cnv_absolute <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/Copy_Number_(Absolute)_subsetted.csv", row.names=1, stringsAsFactors=TRUE)
+
+cnv_absolute = tibble::rownames_to_column(cnv_absolute, "sample_id")
+
+cnv_absolute$rowmedian = rowMedians(as.matrix(cnv_absolute[,c(2:21841)]))
+
+cnv_absolute_data= merge(combo_data, cnv_absolute, by="sample_id")
+
+
+dim(cnv_absolute_data)
+
+
+plot(cnv_absolute_data$STAD_GS,cnv_absolute_data$rowmedian)
+
+ggplot(cnv_absolute_data, aes(x =STAD_CIN , y=rowmedian)) + geom_point() + geom_smooth(method="lm", se=FALSE)+ stat_cor(inherit.aes=FALSE,
+                  method="pearson", 
+                  label.x = 0.005,
+                  aes(x = rowmedian, y =STAD_CIN),
+                  cor.coef.name = "rho",
+                  size = 4.5,
+                  r.digits = 2,
+                  p.digits = 2)
+
+
+cnv_absolute_data = cnv_absolute_data[,-c(2:26)]
+cnv_absolute_data_long = dplyr::select(cnv_absolute_data, -c("TME_subtype_cal","TCGA_subtype","ACRG_subtype", "rowmedian"))
+
+
+#Wide to long 
+
+keycol <- "gene"
+valuecol <- "measurement"
+gathercols <- names(cnv_absolute_data_long[,c(12:ncol(cnv_absolute_data_long))])
+
+cnv_absolute_data_long <- tidyr::gather(cnv_absolute_data_long, keycol, valuecol, all_of(gathercols), factor_key=TRUE)
+
+
+#CNV 
+cnv_relative <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/Copy_Number_21Q4_Public_subsetted.csv", row.names=1, stringsAsFactors=TRUE)
+
+cnv_relative = tibble::rownames_to_column(cnv_relative, "sample_id")
+
+cnv_relative$rowmedian = rowMedians(as.matrix(cnv_relative[,c(2:24353)]))
+
+cnv_relative_data= merge(combo_data, cnv_relative, by="sample_id")
+
+
+dim(cnv_relative_data)
+
+
+plot(cnv_relative_data$STAD_GS,cnv_relative_data$rowmedian)
+ggplot(cnv_relative_data, aes(x =STAD_CIN , y=rowmedian)) + geom_point() + geom_smooth(method="lm", se=FALSE) + stat_cor()
+
+
+cnv_absolute_data = cnv_absolute_data[,-c(2:26)]
+cnv_absolute_data_long = dplyr::select(cnv_absolute_data, -c("TME_subtype_cal","TCGA_subtype","ACRG_subtype", "rowmedian"))
+
+
+#Wide to long 
+
+keycol <- "gene"
+valuecol <- "measurement"
+gathercols <- names(cnv_absolute_data_long[,c(12:ncol(cnv_absolute_data_long))])
+
+cnv_absolute_data_long <- tidyr::gather(cnv_absolute_data_long, keycol, valuecol, all_of(gathercols), factor_key=TRUE)
+
+
+ggplot(cnv_absolute_data, aes(x =STAD_CIN , y=rowmedian)) + geom_point() + geom_smooth(method="lm", se=FALSE)
+
+```
+
+#Aneuploidy score 
+```{r}
+aneuoploidy_score <- read.csv("~/Documents/PhD/Gastric cancer genomic Data/Cell line encyclopedia/Aneuploidy_subsetted.csv", row.names=1, stringsAsFactors=TRUE)
+
+aneuoploidy_score = tibble::rownames_to_column(aneuoploidy_score, "sample_id")
+
+
+aneuoploidy_score_data= merge(combo_data, aneuoploidy_score, by="sample_id")
+
+
+keycol <- "gene"
+valuecol <- "measurement"
+gathercols <- c("High_cal", "STAD_CIN", "STAD_EBV","STAD_GS", "STAD_MSI", "MSS_TP53neg","MSS_TP53pos", "MSI", "EMT")
+
+aneuoploidy_score_data_long <- tidyr::gather(aneuoploidy_score_data, keycol, valuecol, gathercols, factor_key=TRUE)
+
+
+ggplot(aneuoploidy_score_data, aes(x =STAD_CIN , y=Aneuploidy.score)) + geom_point() + geom_smooth(method="lm", se=FALSE) + stat_cor(inherit.aes=FALSE,
+                  method="pearson", 
+                  label.x = 0.005,
+                  aes(x = Aneuploidy.score, y =STAD_CIN),
+                  cor.coef.name = "rho",
+                  size = 4.5,
+                  r.digits = 2,
+                  p.digits = 2)
+
+
+ggplot(aneuoploidy_score_data_long, aes(x =valuecol , y=Aneuploidy.score)) + geom_point() + geom_smooth(method="gam", se=FALSE) + stat_cor(inherit.aes=FALSE,
+                  method="spearman", 
+                  label.x = 0.005,
+                  aes(x = Aneuploidy.score, y =valuecol),
+                  cor.coef.name = "rho",
+                  size = 4.5,
+                  r.digits = 2,
+                  p.digits = 2) + facet_wrap(~keycol)+ theme_bw()
+
+ggplot(aneuoploidy_score_data, aes(x =TCGA_subtype , y=Aneuploidy.score)) + geom_boxplot()  
+
+ggplot(aneuoploidy_score_data, aes(x =STAD_GS , y=Aneuploidy.score)) + geom_point() + geom_smooth(method="lm", se=FALSE)
+```
+
