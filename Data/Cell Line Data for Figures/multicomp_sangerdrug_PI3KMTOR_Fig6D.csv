@@ -1,0 +1,118 @@
+"","DRUG_ID","SCREENING_SITE","DRUG_NAME","SYNONYMS","TARGET","TARGET_PATHWAY","drug_name","subtype","value","comparison","comparison_b","comparison_c"
+"1",1053,"SANGER","MK-2206","MK 2206, MK2206","AKT1, AKT2","PI3K/MTOR signaling","MK.2206..GDSC2.1053.","MSI",0.130529440206166,"Unfavourable","Unfavourable","Unfavourable"
+"2",1053,"SANGER","MK-2206","MK 2206, MK2206","AKT1, AKT2","PI3K/MTOR signaling","MK.2206..GDSC2.1053.","High_cal",0.247710084785608,"Unfavourable","Unfavourable",NA
+"3",1053,"SANGER","MK-2206","MK 2206, MK2206","AKT1, AKT2","PI3K/MTOR signaling","MK.2206..GDSC2.1053.","STAD_GS",0.194384503560152,"Unfavourable","Unfavourable",NA
+"4",1053,"SANGER","MK-2206","MK 2206, MK2206","AKT1, AKT2","PI3K/MTOR signaling","MK.2206..GDSC2.1053.","EMT",-0.181513043033461,"Favourable","Favourable",NA
+"5",1053,"SANGER","MK-2206","MK 2206, MK2206","AKT1, AKT2","PI3K/MTOR signaling","MK.2206..GDSC2.1053.","MSS_TP53pos",-0.0323360799623305,"Unfavourable","Unfavourable",NA
+"6",1053,"SANGER","MK-2206","MK 2206, MK2206","AKT1, AKT2","PI3K/MTOR signaling","MK.2206..GDSC2.1053.","STAD_EBV",-0.241767840423994,"Favourable","Favourable",NA
+"7",1053,"SANGER","MK-2206","MK 2206, MK2206","AKT1, AKT2","PI3K/MTOR signaling","MK.2206..GDSC2.1053.","STAD_CIN",0.116653794425428,"Unfavourable","Unfavourable","Unfavourable"
+"8",1053,"SANGER","MK-2206","MK 2206, MK2206","AKT1, AKT2","PI3K/MTOR signaling","MK.2206..GDSC2.1053.","MSS_TP53neg",0.074707835701457,"Favourable",NA,"Favourable"
+"9",1053,"SANGER","MK-2206","MK 2206, MK2206","AKT1, AKT2","PI3K/MTOR signaling","MK.2206..GDSC2.1053.","STAD_MSI",-0.151831083119662,"Favourable","Favourable",NA
+"10",1057,"SANGER","Dactolisib","NVP-BEZ235, BEZ235","PI3K (class 1), MTORC1, MTORC2","PI3K/MTOR signaling","NVP.BEZ235..GDSC2.1057.","STAD_GS",0.0933831801275733,"Unfavourable","Unfavourable",NA
+"11",1057,"SANGER","Dactolisib","NVP-BEZ235, BEZ235","PI3K (class 1), MTORC1, MTORC2","PI3K/MTOR signaling","NVP.BEZ235..GDSC2.1057.","STAD_EBV",-0.142277753873639,"Favourable","Favourable",NA
+"12",1057,"SANGER","Dactolisib","NVP-BEZ235, BEZ235","PI3K (class 1), MTORC1, MTORC2","PI3K/MTOR signaling","NVP.BEZ235..GDSC2.1057.","STAD_CIN",0.00414658683212004,"Unfavourable","Unfavourable","Unfavourable"
+"13",1057,"SANGER","Dactolisib","NVP-BEZ235, BEZ235","PI3K (class 1), MTORC1, MTORC2","PI3K/MTOR signaling","NVP.BEZ235..GDSC2.1057.","EMT",-0.410472744900309,"Favourable","Favourable",NA
+"14",1057,"SANGER","Dactolisib","NVP-BEZ235, BEZ235","PI3K (class 1), MTORC1, MTORC2","PI3K/MTOR signaling","NVP.BEZ235..GDSC2.1057.","MSS_TP53pos",0.386038993847502,"Unfavourable","Unfavourable",NA
+"15",1057,"SANGER","Dactolisib","NVP-BEZ235, BEZ235","PI3K (class 1), MTORC1, MTORC2","PI3K/MTOR signaling","NVP.BEZ235..GDSC2.1057.","MSS_TP53neg",-0.179472786341057,"Favourable",NA,"Favourable"
+"16",1057,"SANGER","Dactolisib","NVP-BEZ235, BEZ235","PI3K (class 1), MTORC1, MTORC2","PI3K/MTOR signaling","NVP.BEZ235..GDSC2.1057.","MSI",0.0581639571542001,"Unfavourable","Unfavourable","Unfavourable"
+"17",1057,"SANGER","Dactolisib","NVP-BEZ235, BEZ235","PI3K (class 1), MTORC1, MTORC2","PI3K/MTOR signaling","NVP.BEZ235..GDSC2.1057.","STAD_MSI",-0.00031671017008129,"Favourable","Favourable",NA
+"18",1057,"SANGER","Dactolisib","NVP-BEZ235, BEZ235","PI3K (class 1), MTORC1, MTORC2","PI3K/MTOR signaling","NVP.BEZ235..GDSC2.1057.","High_cal",0.0108375275048116,"Unfavourable","Unfavourable",NA
+"19",1058,"SANGER","Pictilisib","GDC-0941, GDC0941, RG-7621","PI3K (class 1)","PI3K/MTOR signaling","GDC.0941..GDSC2.1058.","STAD_CIN",0.0748537279472681,"Unfavourable","Unfavourable","Unfavourable"
+"20",1058,"SANGER","Pictilisib","GDC-0941, GDC0941, RG-7621","PI3K (class 1)","PI3K/MTOR signaling","GDC.0941..GDSC2.1058.","High_cal",0.30581783182513,"Unfavourable","Unfavourable",NA
+"21",1058,"SANGER","Pictilisib","GDC-0941, GDC0941, RG-7621","PI3K (class 1)","PI3K/MTOR signaling","GDC.0941..GDSC2.1058.","MSS_TP53pos",0.0786248719429695,"Unfavourable","Unfavourable",NA
+"22",1058,"SANGER","Pictilisib","GDC-0941, GDC0941, RG-7621","PI3K (class 1)","PI3K/MTOR signaling","GDC.0941..GDSC2.1058.","MSI",0.0652727155997509,"Unfavourable","Unfavourable","Unfavourable"
+"23",1058,"SANGER","Pictilisib","GDC-0941, GDC0941, RG-7621","PI3K (class 1)","PI3K/MTOR signaling","GDC.0941..GDSC2.1058.","STAD_MSI",-0.141871010831692,"Favourable","Favourable",NA
+"24",1058,"SANGER","Pictilisib","GDC-0941, GDC0941, RG-7621","PI3K (class 1)","PI3K/MTOR signaling","GDC.0941..GDSC2.1058.","EMT",-0.375801744106452,"Favourable","Favourable",NA
+"25",1058,"SANGER","Pictilisib","GDC-0941, GDC0941, RG-7621","PI3K (class 1)","PI3K/MTOR signaling","GDC.0941..GDSC2.1058.","STAD_EBV",-0.277741803755286,"Favourable","Favourable",NA
+"26",1058,"SANGER","Pictilisib","GDC-0941, GDC0941, RG-7621","PI3K (class 1)","PI3K/MTOR signaling","GDC.0941..GDSC2.1058.","STAD_GS",0.291536622142309,"Unfavourable","Unfavourable",NA
+"27",1058,"SANGER","Pictilisib","GDC-0941, GDC0941, RG-7621","PI3K (class 1)","PI3K/MTOR signaling","GDC.0941..GDSC2.1058.","MSS_TP53neg",0.140200872720091,"Favourable",NA,"Favourable"
+"28",1084,"SANGER","Rapamycin","AY-22989, Sirolimus, WY-090217, Torisel, Rapamune","MTORC1","PI3K/MTOR signaling","WY.090217..GDSC2.1084.","STAD_MSI",-0.298476818359771,"Favourable","Favourable",NA
+"29",1084,"SANGER","Rapamycin","AY-22989, Sirolimus, WY-090217, Torisel, Rapamune","MTORC1","PI3K/MTOR signaling","WY.090217..GDSC2.1084.","MSI",-0.143269978474064,"Unfavourable","Unfavourable","Unfavourable"
+"30",1084,"SANGER","Rapamycin","AY-22989, Sirolimus, WY-090217, Torisel, Rapamune","MTORC1","PI3K/MTOR signaling","WY.090217..GDSC2.1084.","MSS_TP53pos",0.0353292663329229,"Unfavourable","Unfavourable",NA
+"31",1084,"SANGER","Rapamycin","AY-22989, Sirolimus, WY-090217, Torisel, Rapamune","MTORC1","PI3K/MTOR signaling","WY.090217..GDSC2.1084.","STAD_EBV",-0.438700501614693,"Favourable","Favourable",NA
+"32",1084,"SANGER","Rapamycin","AY-22989, Sirolimus, WY-090217, Torisel, Rapamune","MTORC1","PI3K/MTOR signaling","WY.090217..GDSC2.1084.","MSS_TP53neg",-0.137786210210305,"Favourable",NA,"Favourable"
+"33",1084,"SANGER","Rapamycin","AY-22989, Sirolimus, WY-090217, Torisel, Rapamune","MTORC1","PI3K/MTOR signaling","WY.090217..GDSC2.1084.","STAD_CIN",0.379461073500191,"Unfavourable","Unfavourable","Unfavourable"
+"34",1084,"SANGER","Rapamycin","AY-22989, Sirolimus, WY-090217, Torisel, Rapamune","MTORC1","PI3K/MTOR signaling","WY.090217..GDSC2.1084.","High_cal",0.239173496111617,"Unfavourable","Unfavourable",NA
+"35",1084,"SANGER","Rapamycin","AY-22989, Sirolimus, WY-090217, Torisel, Rapamune","MTORC1","PI3K/MTOR signaling","WY.090217..GDSC2.1084.","STAD_GS",0.0126729652565027,"Unfavourable","Unfavourable",NA
+"36",1084,"SANGER","Rapamycin","AY-22989, Sirolimus, WY-090217, Torisel, Rapamune","MTORC1","PI3K/MTOR signaling","WY.090217..GDSC2.1084.","EMT",0.234265574015162,"Favourable","Favourable",NA
+"37",1553,"SANGER","Uprosertib","GSK2141795, GSK2141795C, GSK-2141795","AKT1, AKT2, AKT3","PI3K/MTOR signaling","uprosertib..GDSC2.1553.","MSS_TP53pos",0.0698850120234126,"Unfavourable","Unfavourable",NA
+"38",1553,"SANGER","Uprosertib","GSK2141795, GSK2141795C, GSK-2141795","AKT1, AKT2, AKT3","PI3K/MTOR signaling","uprosertib..GDSC2.1553.","STAD_MSI",-0.285686636320135,"Favourable","Favourable",NA
+"39",1553,"SANGER","Uprosertib","GSK2141795, GSK2141795C, GSK-2141795","AKT1, AKT2, AKT3","PI3K/MTOR signaling","uprosertib..GDSC2.1553.","MSI",0.0663220537099431,"Unfavourable","Unfavourable","Unfavourable"
+"40",1553,"SANGER","Uprosertib","GSK2141795, GSK2141795C, GSK-2141795","AKT1, AKT2, AKT3","PI3K/MTOR signaling","uprosertib..GDSC2.1553.","EMT",-0.0972518107380123,"Favourable","Favourable",NA
+"41",1553,"SANGER","Uprosertib","GSK2141795, GSK2141795C, GSK-2141795","AKT1, AKT2, AKT3","PI3K/MTOR signaling","uprosertib..GDSC2.1553.","MSS_TP53neg",-0.0704259713118433,"Favourable",NA,"Favourable"
+"42",1553,"SANGER","Uprosertib","GSK2141795, GSK2141795C, GSK-2141795","AKT1, AKT2, AKT3","PI3K/MTOR signaling","uprosertib..GDSC2.1553.","STAD_EBV",-0.15898913190107,"Favourable","Favourable",NA
+"43",1553,"SANGER","Uprosertib","GSK2141795, GSK2141795C, GSK-2141795","AKT1, AKT2, AKT3","PI3K/MTOR signaling","uprosertib..GDSC2.1553.","High_cal",0.151914693643359,"Unfavourable","Unfavourable",NA
+"44",1553,"SANGER","Uprosertib","GSK2141795, GSK2141795C, GSK-2141795","AKT1, AKT2, AKT3","PI3K/MTOR signaling","uprosertib..GDSC2.1553.","STAD_GS",0.252104260353625,"Unfavourable","Unfavourable",NA
+"45",1553,"SANGER","Uprosertib","GSK2141795, GSK2141795C, GSK-2141795","AKT1, AKT2, AKT3","PI3K/MTOR signaling","uprosertib..GDSC2.1553.","STAD_CIN",0.183781796032702,"Unfavourable","Unfavourable","Unfavourable"
+"46",1560,"SANGER","Alpelisib","BYL719, BYL-719, NVP-BYL719","PI3Kalpha","PI3K/MTOR signaling","alpelisib..GDSC2.1560.","STAD_MSI",0.0991768378591328,"Favourable","Favourable",NA
+"47",1560,"SANGER","Alpelisib","BYL719, BYL-719, NVP-BYL719","PI3Kalpha","PI3K/MTOR signaling","alpelisib..GDSC2.1560.","EMT",-0.46608523704356,"Favourable","Favourable",NA
+"48",1560,"SANGER","Alpelisib","BYL719, BYL-719, NVP-BYL719","PI3Kalpha","PI3K/MTOR signaling","alpelisib..GDSC2.1560.","High_cal",0.322232351496285,"Unfavourable","Unfavourable",NA
+"49",1560,"SANGER","Alpelisib","BYL719, BYL-719, NVP-BYL719","PI3Kalpha","PI3K/MTOR signaling","alpelisib..GDSC2.1560.","MSS_TP53pos",0.211065373755029,"Unfavourable","Unfavourable",NA
+"50",1560,"SANGER","Alpelisib","BYL719, BYL-719, NVP-BYL719","PI3Kalpha","PI3K/MTOR signaling","alpelisib..GDSC2.1560.","MSI",0.123477908962075,"Unfavourable","Unfavourable","Unfavourable"
+"51",1560,"SANGER","Alpelisib","BYL719, BYL-719, NVP-BYL719","PI3Kalpha","PI3K/MTOR signaling","alpelisib..GDSC2.1560.","STAD_GS",0.17842883106195,"Unfavourable","Unfavourable",NA
+"52",1560,"SANGER","Alpelisib","BYL719, BYL-719, NVP-BYL719","PI3Kalpha","PI3K/MTOR signaling","alpelisib..GDSC2.1560.","STAD_EBV",-0.249751102954258,"Favourable","Favourable",NA
+"53",1560,"SANGER","Alpelisib","BYL719, BYL-719, NVP-BYL719","PI3Kalpha","PI3K/MTOR signaling","alpelisib..GDSC2.1560.","MSS_TP53neg",-0.00797027371929658,"Favourable",NA,"Favourable"
+"54",1560,"SANGER","Alpelisib","BYL719, BYL-719, NVP-BYL719","PI3Kalpha","PI3K/MTOR signaling","alpelisib..GDSC2.1560.","STAD_CIN",-0.0832728972621276,"Unfavourable","Unfavourable","Unfavourable"
+"55",1561,"SANGER","Taselisib","GDC-0032, GDC0032, RG7604","PI3K (beta sparing)","PI3K/MTOR signaling","taselisib..GDSC2.1561.","MSI",0.0353767097005781,"Unfavourable","Unfavourable","Unfavourable"
+"56",1561,"SANGER","Taselisib","GDC-0032, GDC0032, RG7604","PI3K (beta sparing)","PI3K/MTOR signaling","taselisib..GDSC2.1561.","STAD_MSI",0.10992407635087,"Favourable","Favourable",NA
+"57",1561,"SANGER","Taselisib","GDC-0032, GDC0032, RG7604","PI3K (beta sparing)","PI3K/MTOR signaling","taselisib..GDSC2.1561.","STAD_EBV",-0.422027764745831,"Favourable","Favourable",NA
+"58",1561,"SANGER","Taselisib","GDC-0032, GDC0032, RG7604","PI3K (beta sparing)","PI3K/MTOR signaling","taselisib..GDSC2.1561.","STAD_CIN",-0.0385012369541951,"Unfavourable","Unfavourable","Unfavourable"
+"59",1561,"SANGER","Taselisib","GDC-0032, GDC0032, RG7604","PI3K (beta sparing)","PI3K/MTOR signaling","taselisib..GDSC2.1561.","MSS_TP53neg",0.212514151922833,"Favourable",NA,"Favourable"
+"60",1561,"SANGER","Taselisib","GDC-0032, GDC0032, RG7604","PI3K (beta sparing)","PI3K/MTOR signaling","taselisib..GDSC2.1561.","EMT",-0.423804665096005,"Favourable","Favourable",NA
+"61",1561,"SANGER","Taselisib","GDC-0032, GDC0032, RG7604","PI3K (beta sparing)","PI3K/MTOR signaling","taselisib..GDSC2.1561.","MSS_TP53pos",0.0540643874478707,"Unfavourable","Unfavourable",NA
+"62",1561,"SANGER","Taselisib","GDC-0032, GDC0032, RG7604","PI3K (beta sparing)","PI3K/MTOR signaling","taselisib..GDSC2.1561.","High_cal",0.45492073273424,"Unfavourable","Unfavourable",NA
+"63",1561,"SANGER","Taselisib","GDC-0032, GDC0032, RG7604","PI3K (beta sparing)","PI3K/MTOR signaling","taselisib..GDSC2.1561.","STAD_GS",0.218121804806704,"Unfavourable","Unfavourable",NA
+"64",1873,"SANGER","Buparlisib","BKM120, NVP-BKM120","PI3Kalpha, PI3Kdelta, PI3Kbeta, PI3Kgamma","PI3K/MTOR signaling","buparlisib..GDSC2.1873.","STAD_MSI",-0.213120346017647,"Favourable","Favourable",NA
+"65",1873,"SANGER","Buparlisib","BKM120, NVP-BKM120","PI3Kalpha, PI3Kdelta, PI3Kbeta, PI3Kgamma","PI3K/MTOR signaling","buparlisib..GDSC2.1873.","EMT",-0.360875946731066,"Favourable","Favourable",NA
+"66",1873,"SANGER","Buparlisib","BKM120, NVP-BKM120","PI3Kalpha, PI3Kdelta, PI3Kbeta, PI3Kgamma","PI3K/MTOR signaling","buparlisib..GDSC2.1873.","MSI",-0.061944276460465,"Unfavourable","Unfavourable","Unfavourable"
+"67",1873,"SANGER","Buparlisib","BKM120, NVP-BKM120","PI3Kalpha, PI3Kdelta, PI3Kbeta, PI3Kgamma","PI3K/MTOR signaling","buparlisib..GDSC2.1873.","MSS_TP53pos",0.22980316249929,"Unfavourable","Unfavourable",NA
+"68",1873,"SANGER","Buparlisib","BKM120, NVP-BKM120","PI3Kalpha, PI3Kdelta, PI3Kbeta, PI3Kgamma","PI3K/MTOR signaling","buparlisib..GDSC2.1873.","High_cal",-0.0889829338282218,"Unfavourable","Unfavourable",NA
+"69",1873,"SANGER","Buparlisib","BKM120, NVP-BKM120","PI3Kalpha, PI3Kdelta, PI3Kbeta, PI3Kgamma","PI3K/MTOR signaling","buparlisib..GDSC2.1873.","STAD_EBV",-0.214551681609154,"Favourable","Favourable",NA
+"70",1873,"SANGER","Buparlisib","BKM120, NVP-BKM120","PI3Kalpha, PI3Kdelta, PI3Kbeta, PI3Kgamma","PI3K/MTOR signaling","buparlisib..GDSC2.1873.","STAD_CIN",0.159304357089641,"Unfavourable","Unfavourable","Unfavourable"
+"71",1873,"SANGER","Buparlisib","BKM120, NVP-BKM120","PI3Kalpha, PI3Kdelta, PI3Kbeta, PI3Kgamma","PI3K/MTOR signaling","buparlisib..GDSC2.1873.","STAD_GS",0.193137730400066,"Unfavourable","Unfavourable",NA
+"72",1873,"SANGER","Buparlisib","BKM120, NVP-BKM120","PI3Kalpha, PI3Kdelta, PI3Kbeta, PI3Kgamma","PI3K/MTOR signaling","buparlisib..GDSC2.1873.","MSS_TP53neg",0.050800432227792,"Favourable",NA,"Favourable"
+"73",1912,"SANGER","Afuresertib","GSK2110183, GSK2110183C","AKT1, AKT2, AKT3","PI3K/MTOR signaling","GSK2110183C..GDSC2.1912.","STAD_CIN",0.0855619455004051,"Unfavourable","Unfavourable","Unfavourable"
+"74",1912,"SANGER","Afuresertib","GSK2110183, GSK2110183C","AKT1, AKT2, AKT3","PI3K/MTOR signaling","GSK2110183C..GDSC2.1912.","STAD_MSI",-0.162477919901664,"Favourable","Favourable",NA
+"75",1912,"SANGER","Afuresertib","GSK2110183, GSK2110183C","AKT1, AKT2, AKT3","PI3K/MTOR signaling","GSK2110183C..GDSC2.1912.","STAD_GS",0.213521363965399,"Unfavourable","Unfavourable",NA
+"76",1912,"SANGER","Afuresertib","GSK2110183, GSK2110183C","AKT1, AKT2, AKT3","PI3K/MTOR signaling","GSK2110183C..GDSC2.1912.","MSS_TP53neg",-0.0696603568348197,"Favourable",NA,"Favourable"
+"77",1912,"SANGER","Afuresertib","GSK2110183, GSK2110183C","AKT1, AKT2, AKT3","PI3K/MTOR signaling","GSK2110183C..GDSC2.1912.","EMT",-0.375834278301202,"Favourable","Favourable",NA
+"78",1912,"SANGER","Afuresertib","GSK2110183, GSK2110183C","AKT1, AKT2, AKT3","PI3K/MTOR signaling","GSK2110183C..GDSC2.1912.","High_cal",0.116046800477927,"Unfavourable","Unfavourable",NA
+"79",1912,"SANGER","Afuresertib","GSK2110183, GSK2110183C","AKT1, AKT2, AKT3","PI3K/MTOR signaling","GSK2110183C..GDSC2.1912.","MSS_TP53pos",0.205706278412009,"Unfavourable","Unfavourable",NA
+"80",1912,"SANGER","Afuresertib","GSK2110183, GSK2110183C","AKT1, AKT2, AKT3","PI3K/MTOR signaling","GSK2110183C..GDSC2.1912.","MSI",0.153129275709804,"Unfavourable","Unfavourable","Unfavourable"
+"81",1912,"SANGER","Afuresertib","GSK2110183, GSK2110183C","AKT1, AKT2, AKT3","PI3K/MTOR signaling","GSK2110183C..GDSC2.1912.","STAD_EBV",-0.149153740747685,"Favourable","Favourable",NA
+"82",1918,"SANGER","AZD8186","AZD 8186, AZD-8186","PI3Kalpha, PI3Kbeta","PI3K/MTOR signaling","AZD8186..GDSC2.1918.","STAD_GS",0.300898313881992,"Unfavourable","Unfavourable",NA
+"83",1918,"SANGER","AZD8186","AZD 8186, AZD-8186","PI3Kalpha, PI3Kbeta","PI3K/MTOR signaling","AZD8186..GDSC2.1918.","STAD_MSI",-0.335373562415717,"Favourable","Favourable",NA
+"84",1918,"SANGER","AZD8186","AZD 8186, AZD-8186","PI3Kalpha, PI3Kbeta","PI3K/MTOR signaling","AZD8186..GDSC2.1918.","MSI",0.228368376243819,"Unfavourable","Unfavourable","Unfavourable"
+"85",1918,"SANGER","AZD8186","AZD 8186, AZD-8186","PI3Kalpha, PI3Kbeta","PI3K/MTOR signaling","AZD8186..GDSC2.1918.","MSS_TP53neg",-0.0176511603508557,"Favourable",NA,"Favourable"
+"86",1918,"SANGER","AZD8186","AZD 8186, AZD-8186","PI3Kalpha, PI3Kbeta","PI3K/MTOR signaling","AZD8186..GDSC2.1918.","MSS_TP53pos",0.0596551507742825,"Unfavourable","Unfavourable",NA
+"87",1918,"SANGER","AZD8186","AZD 8186, AZD-8186","PI3Kalpha, PI3Kbeta","PI3K/MTOR signaling","AZD8186..GDSC2.1918.","STAD_CIN",0.094641988145242,"Unfavourable","Unfavourable","Unfavourable"
+"88",1918,"SANGER","AZD8186","AZD 8186, AZD-8186","PI3Kalpha, PI3Kbeta","PI3K/MTOR signaling","AZD8186..GDSC2.1918.","High_cal",0.240456181972921,"Unfavourable","Unfavourable",NA
+"89",1918,"SANGER","AZD8186","AZD 8186, AZD-8186","PI3Kalpha, PI3Kbeta","PI3K/MTOR signaling","AZD8186..GDSC2.1918.","EMT",-0.296212983321425,"Favourable","Favourable",NA
+"90",1918,"SANGER","AZD8186","AZD 8186, AZD-8186","PI3Kalpha, PI3Kbeta","PI3K/MTOR signaling","AZD8186..GDSC2.1918.","STAD_EBV",0.132591885853446,"Favourable","Favourable",NA
+"91",1924,"SANGER","Ipatasertib","GDC0068, GDC 0068, GDC-0068","AKT1, AKT, AKT3","PI3K/MTOR signaling","GDC.0068..GDSC2.1924.","MSI",0.293168861244975,"Unfavourable","Unfavourable","Unfavourable"
+"92",1924,"SANGER","Ipatasertib","GDC0068, GDC 0068, GDC-0068","AKT1, AKT, AKT3","PI3K/MTOR signaling","GDC.0068..GDSC2.1924.","EMT",-0.222399345010524,"Favourable","Favourable",NA
+"93",1924,"SANGER","Ipatasertib","GDC0068, GDC 0068, GDC-0068","AKT1, AKT, AKT3","PI3K/MTOR signaling","GDC.0068..GDSC2.1924.","High_cal",0.0648717188868077,"Unfavourable","Unfavourable",NA
+"94",1924,"SANGER","Ipatasertib","GDC0068, GDC 0068, GDC-0068","AKT1, AKT, AKT3","PI3K/MTOR signaling","GDC.0068..GDSC2.1924.","STAD_GS",0.311652356998331,"Unfavourable","Unfavourable",NA
+"95",1924,"SANGER","Ipatasertib","GDC0068, GDC 0068, GDC-0068","AKT1, AKT, AKT3","PI3K/MTOR signaling","GDC.0068..GDSC2.1924.","STAD_MSI",-0.242417298674973,"Favourable","Favourable",NA
+"96",1924,"SANGER","Ipatasertib","GDC0068, GDC 0068, GDC-0068","AKT1, AKT, AKT3","PI3K/MTOR signaling","GDC.0068..GDSC2.1924.","STAD_CIN",0.055994816533322,"Unfavourable","Unfavourable","Unfavourable"
+"97",1924,"SANGER","Ipatasertib","GDC0068, GDC 0068, GDC-0068","AKT1, AKT, AKT3","PI3K/MTOR signaling","GDC.0068..GDSC2.1924.","MSS_TP53pos",0.175374527687372,"Unfavourable","Unfavourable",NA
+"98",1924,"SANGER","Ipatasertib","GDC0068, GDC 0068, GDC-0068","AKT1, AKT, AKT3","PI3K/MTOR signaling","GDC.0068..GDSC2.1924.","STAD_EBV",0.00114976999512807,"Favourable","Favourable",NA
+"99",1924,"SANGER","Ipatasertib","GDC0068, GDC 0068, GDC-0068","AKT1, AKT, AKT3","PI3K/MTOR signaling","GDC.0068..GDSC2.1924.","MSS_TP53neg",-0.252161124788539,"Favourable",NA,"Favourable"
+"100",1926,"SANGER","GNE-317","GNE317, GNE 317","PI3Kalpha","PI3K/MTOR signaling","GNE317..GDSC2.1926.","High_cal",0.0813814603942025,"Unfavourable","Unfavourable",NA
+"101",1926,"SANGER","GNE-317","GNE317, GNE 317","PI3Kalpha","PI3K/MTOR signaling","GNE317..GDSC2.1926.","MSS_TP53pos",0.382220669926137,"Unfavourable","Unfavourable",NA
+"102",1926,"SANGER","GNE-317","GNE317, GNE 317","PI3Kalpha","PI3K/MTOR signaling","GNE317..GDSC2.1926.","MSI",-0.12233547075901,"Unfavourable","Unfavourable","Unfavourable"
+"103",1926,"SANGER","GNE-317","GNE317, GNE 317","PI3Kalpha","PI3K/MTOR signaling","GNE317..GDSC2.1926.","EMT",-0.432289508033747,"Favourable","Favourable",NA
+"104",1926,"SANGER","GNE-317","GNE317, GNE 317","PI3Kalpha","PI3K/MTOR signaling","GNE317..GDSC2.1926.","STAD_CIN",0.0188431392116898,"Unfavourable","Unfavourable","Unfavourable"
+"105",1926,"SANGER","GNE-317","GNE317, GNE 317","PI3Kalpha","PI3K/MTOR signaling","GNE317..GDSC2.1926.","STAD_EBV",-0.257540628851724,"Favourable","Favourable",NA
+"106",1926,"SANGER","GNE-317","GNE317, GNE 317","PI3Kalpha","PI3K/MTOR signaling","GNE317..GDSC2.1926.","MSS_TP53neg",-0.0365940953884836,"Favourable",NA,"Favourable"
+"107",1926,"SANGER","GNE-317","GNE317, GNE 317","PI3Kalpha","PI3K/MTOR signaling","GNE317..GDSC2.1926.","STAD_MSI",-0.00381190589258553,"Favourable","Favourable",NA
+"108",1926,"SANGER","GNE-317","GNE317, GNE 317","PI3Kalpha","PI3K/MTOR signaling","GNE317..GDSC2.1926.","STAD_GS",0.171609668087124,"Unfavourable","Unfavourable",NA
+"109",2106,"SANGER","Uprosertib","GSK2141795, GSK2141795C, GSK-2141795","AKT1, AKT2, AKT3","PI3K/MTOR signaling","uprosertib..GDSC2.2106.","MSI",-0.0569482036949192,"Unfavourable","Unfavourable","Unfavourable"
+"110",2106,"SANGER","Uprosertib","GSK2141795, GSK2141795C, GSK-2141795","AKT1, AKT2, AKT3","PI3K/MTOR signaling","uprosertib..GDSC2.2106.","STAD_GS",0.268283725362281,"Unfavourable","Unfavourable",NA
+"111",2106,"SANGER","Uprosertib","GSK2141795, GSK2141795C, GSK-2141795","AKT1, AKT2, AKT3","PI3K/MTOR signaling","uprosertib..GDSC2.2106.","MSS_TP53neg",-0.10369197844356,"Favourable",NA,"Favourable"
+"112",2106,"SANGER","Uprosertib","GSK2141795, GSK2141795C, GSK-2141795","AKT1, AKT2, AKT3","PI3K/MTOR signaling","uprosertib..GDSC2.2106.","STAD_CIN",0.0699116912783031,"Unfavourable","Unfavourable","Unfavourable"
+"113",2106,"SANGER","Uprosertib","GSK2141795, GSK2141795C, GSK-2141795","AKT1, AKT2, AKT3","PI3K/MTOR signaling","uprosertib..GDSC2.2106.","MSS_TP53pos",0.140978469632065,"Unfavourable","Unfavourable",NA
+"114",2106,"SANGER","Uprosertib","GSK2141795, GSK2141795C, GSK-2141795","AKT1, AKT2, AKT3","PI3K/MTOR signaling","uprosertib..GDSC2.2106.","STAD_MSI",-0.0882223218747838,"Favourable","Favourable",NA
+"115",2106,"SANGER","Uprosertib","GSK2141795, GSK2141795C, GSK-2141795","AKT1, AKT2, AKT3","PI3K/MTOR signaling","uprosertib..GDSC2.2106.","High_cal",0.129198742761224,"Unfavourable","Unfavourable",NA
+"116",2106,"SANGER","Uprosertib","GSK2141795, GSK2141795C, GSK-2141795","AKT1, AKT2, AKT3","PI3K/MTOR signaling","uprosertib..GDSC2.2106.","STAD_EBV",-0.353482210553438,"Favourable","Favourable",NA
+"117",2106,"SANGER","Uprosertib","GSK2141795, GSK2141795C, GSK-2141795","AKT1, AKT2, AKT3","PI3K/MTOR signaling","uprosertib..GDSC2.2106.","EMT",-0.0452245146010553,"Favourable","Favourable",NA
