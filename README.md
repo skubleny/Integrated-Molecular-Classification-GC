@@ -13,6 +13,9 @@ DOI: https://doi.org/10.1158/1078-0432.CCR-23-3523
 
 # A 107 gene Nanostring assay effectively translates the Cancer Genome Atlas, and Tumour Microenvironment gastric cancer molecular classification to a patient-derived organoid model
 
-Follow up paper coming soon. 
+Published in Genes, Chromosomes and Cancer: 
+https://onlinelibrary.wiley.com/doi/full/10.1002/gcc.70090
+
+DOI: https://doi.org/10.1002/gcc.70090
 
 ![Organoid Nanostring Paper redo](https://github.com/user-attachments/assets/3c53a9ae-9b27-4d9a-a861-1bcd8a0dc29f)
